@@ -101,22 +101,6 @@ atlas::Mesh AtlasExtractSubMeshImpl(const atlas::Mesh& meshIn,
     oldToNewNodeMap.emplace(keptNodeIndices[idx], idx);
   }
 
-  // edges
-  std::set<int> keptEdgeSet;
-  for(int cellIdx : keptCellIndices) {
-    int numNbh = cellToEdgeIn.cols(cellIdx);
-    for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
-      int edgeIdx = cellToEdgeIn(cellIdx, nbhIdx);
-      keptEdgeSet.insert(edgeIdx);
-    }
-  }
-
-  std::vector<int> keptEdgeIndices(keptEdgeSet.begin(), keptEdgeSet.end());
-  std::unordered_map<int, int> oldToNewEdgeMap;
-  for(int idx = 0; idx < keptEdgeIndices.size(); idx++) {
-    oldToNewEdgeMap.emplace(keptEdgeIndices[idx], idx);
-  }
-
   // cells
   std::unordered_map<int, int> oldToNewCellMap;
   std::set<int> keptCellSet;
@@ -125,13 +109,11 @@ atlas::Mesh AtlasExtractSubMeshImpl(const atlas::Mesh& meshIn,
     keptCellSet.insert(keptCellIndices[idx]);
   }
 
-  const int newSizeEdges = keptEdgeIndices.size();
   const int newSizeNodes = keptNodeIndices.size();
   const int newSizeCells = keptCellIndices.size();
 
   atlas::Mesh mesh;
   mesh.nodes().resize(newSizeNodes);
-  mesh.edges().add(new atlas::mesh::temporary::Line(), newSizeEdges);
   mesh.cells().add(new atlas::mesh::temporary::Triangle(), newSizeCells);
 
   // copy node data
@@ -154,6 +136,24 @@ atlas::Mesh AtlasExtractSubMeshImpl(const atlas::Mesh& meshIn,
   if(!complete) {
     return mesh;
   }
+
+  // edges (a minimal mesh may not contain edges, so we have to pull this down)
+  std::set<int> keptEdgeSet;
+  for(int cellIdx : keptCellIndices) {
+    int numNbh = cellToEdgeIn.cols(cellIdx);
+    for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
+      int edgeIdx = cellToEdgeIn(cellIdx, nbhIdx);
+      keptEdgeSet.insert(edgeIdx);
+    }
+  }
+
+  std::vector<int> keptEdgeIndices(keptEdgeSet.begin(), keptEdgeSet.end());
+  std::unordered_map<int, int> oldToNewEdgeMap;
+  for(int idx = 0; idx < keptEdgeIndices.size(); idx++) {
+    oldToNewEdgeMap.emplace(keptEdgeIndices[idx], idx);
+  }
+  const int newSizeEdges = keptEdgeIndices.size();
+  mesh.edges().add(new atlas::mesh::temporary::Line(), newSizeEdges);
 
   auto& cellToEdge = mesh.cells().edge_connectivity();
 
