@@ -56,8 +56,9 @@ bool TriangleInBB(const atlas::Mesh& mesh, int cellIdx, std::tuple<double, doubl
 
   return inBB(x0, y0) || inBB(x1, y1) || inBB(x2, y2);
 }
+} // namespace
 
-atlas::Mesh makeAtlasMeshRect(int ny) {
+atlas::Mesh AtlasMeshRect(int ny) {
   atlas::Grid grid;
   int nx = 3 * ny;
 
@@ -95,8 +96,8 @@ atlas::Mesh makeAtlasMeshRect(int ny) {
   double length = newHeight * 2;
 
   std::vector<int> keep;
-  std::tuple<double, double> lo{0., 0.};
-  std::tuple<double, double> hi{length, std::numeric_limits<double>::max()};
+  std::tuple<double, double> lo{0., -std::numeric_limits<double>::max()};
+  std::tuple<double, double> hi{length + length / (nx)*0.1, std::numeric_limits<double>::max()};
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     if(TriangleInBB(mesh, cellIdx, lo, hi)) {
       keep.push_back(cellIdx);
@@ -104,53 +105,37 @@ atlas::Mesh makeAtlasMeshRect(int ny) {
   }
 
   auto rectMesh = AtlasExtractSubMeshMinimal(mesh, keep);
+  auto xyRect = atlas::array::make_view<double, 2>(rectMesh.nodes().xy());
+  double xMin = std::numeric_limits<double>::max();
+  double yMin = std::numeric_limits<double>::max();
+  double xMax = -std::numeric_limits<double>::max();
+  double yMax = -std::numeric_limits<double>::max();
+  for(int nodeIdx = 0; nodeIdx < rectMesh.nodes().size(); nodeIdx++) {
+    double x = xyRect(nodeIdx, atlas::LON);
+    double y = xyRect(nodeIdx, atlas::LAT);
+    xMin = fmin(x, xMin);
+    yMin = fmin(y, yMin);
+    xMax = fmax(x, xMax);
+    yMax = fmax(y, yMax);
+  }
+  double lX = xMax - xMin;
+  double lY = yMax - yMin;
+  // re-center
+  for(int nodeIdx = 0; nodeIdx < rectMesh.nodes().size(); nodeIdx++) {
+    double x = xyRect(nodeIdx, atlas::LON);
+    double y = xyRect(nodeIdx, atlas::LAT);
+    xyRect(nodeIdx, atlas::LON) = x - xMin - lX / 2;
+    xyRect(nodeIdx, atlas::LAT) = y - yMin - lY / 2;
+  }
+
+  // scale (single scale factor to exactly preserve equilateral edge lengths)
+  double scale = 180 / lY;
+  for(int nodeIdx = 0; nodeIdx < rectMesh.nodes().size(); nodeIdx++) {
+    double x = xyRect(nodeIdx, atlas::LON);
+    double y = xyRect(nodeIdx, atlas::LAT);
+    xyRect(nodeIdx, atlas::LON) = x * scale;
+    xyRect(nodeIdx, atlas::LAT) = y * scale;
+  }
+
   return rectMesh;
-}
-
-void debugDump(const atlas::Mesh& mesh, const std::string prefix) {
-  auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
-  const atlas::mesh::HybridElements::Connectivity& node_connectivity =
-      mesh.cells().node_connectivity();
-
-  {
-    char buf[256];
-    sprintf(buf, "%sT.txt", prefix.c_str());
-    FILE* fp = fopen(buf, "w+");
-    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-      int nodeIdx0 = node_connectivity(cellIdx, 0) + 1;
-      int nodeIdx1 = node_connectivity(cellIdx, 1) + 1;
-      int nodeIdx2 = node_connectivity(cellIdx, 2) + 1;
-      fprintf(fp, "%d %d %d\n", nodeIdx0, nodeIdx1, nodeIdx2);
-    }
-    fclose(fp);
-  }
-
-  {
-    char buf[256];
-    sprintf(buf, "%sP.txt", prefix.c_str());
-    FILE* fp = fopen(buf, "w+");
-    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
-      double x = xy(nodeIdx, atlas::LON);
-      double y = xy(nodeIdx, atlas::LAT);
-      fprintf(fp, "%f %f \n", x, y);
-    }
-    fclose(fp);
-  }
-}
-} // namespace
-
-int main(int argc, char const* argv[]) {
-  if(argc != 3) {
-    std::cout << "intended use is\n"
-              << argv[0] << " yRes"
-              << " output_file.nc" << std::endl;
-    return -1;
-  }
-
-  int ny = atoi(argv[1]);
-  std::string outFname(argv[2]);
-
-  const auto& mesh = makeAtlasMeshRect(ny);
-
-  debugDump(mesh, "test");
 }

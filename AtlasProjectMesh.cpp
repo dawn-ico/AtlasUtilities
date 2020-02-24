@@ -42,28 +42,24 @@
 
 #include <netcdf>
 
-namespace
-{
+namespace {
 const double R = 6371; // radius earth
 
 template <typename T>
-static int sgn(T val)
-{
+static int sgn(T val) {
   return (T(0) < val) - (val < T(0));
 }
 
-void debugDump(const atlas::Mesh &mesh, const std::string prefix)
-{
+void debugDump(const atlas::Mesh& mesh, const std::string prefix) {
   auto lonlat = atlas::array::make_view<double, 2>(mesh.nodes().lonlat());
-  const atlas::mesh::HybridElements::Connectivity &node_connectivity =
+  const atlas::mesh::HybridElements::Connectivity& node_connectivity =
       mesh.cells().node_connectivity();
 
   {
     char buf[256];
     sprintf(buf, "%sT.txt", prefix.c_str());
-    FILE *fp = fopen(buf, "w+");
-    for (int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++)
-    {
+    FILE* fp = fopen(buf, "w+");
+    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       int nodeIdx0 = node_connectivity(cellIdx, 0) + 1;
       int nodeIdx1 = node_connectivity(cellIdx, 1) + 1;
       int nodeIdx2 = node_connectivity(cellIdx, 2) + 1;
@@ -77,9 +73,8 @@ void debugDump(const atlas::Mesh &mesh, const std::string prefix)
     auto lonToRad = [](double rad) { return rad / 180. * M_PI; };
     char buf[256];
     sprintf(buf, "%sP.txt", prefix.c_str());
-    FILE *fp = fopen(buf, "w+");
-    for (int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++)
-    {
+    FILE* fp = fopen(buf, "w+");
+    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
       double latRad = latToRad(lonlat(nodeIdx, atlas::LAT));
       double lonRad = lonToRad(lonlat(nodeIdx, atlas::LON));
 
@@ -98,18 +93,16 @@ void debugDump(const atlas::Mesh &mesh, const std::string prefix)
   // trisurf(T(1:10,:),P(:,1),P(:,2),P(:,3))
 }
 
-void debugDumpUseXY(const atlas::Mesh &mesh, const std::string prefix)
-{
+void debugDumpUseXY(const atlas::Mesh& mesh, const std::string prefix) {
   auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
-  const atlas::mesh::HybridElements::Connectivity &node_connectivity =
+  const atlas::mesh::HybridElements::Connectivity& node_connectivity =
       mesh.cells().node_connectivity();
 
   {
     char buf[256];
     sprintf(buf, "%sT.txt", prefix.c_str());
-    FILE *fp = fopen(buf, "w+");
-    for (int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++)
-    {
+    FILE* fp = fopen(buf, "w+");
+    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       int nodeIdx0 = node_connectivity(cellIdx, 0) + 1;
       int nodeIdx1 = node_connectivity(cellIdx, 1) + 1;
       int nodeIdx2 = node_connectivity(cellIdx, 2) + 1;
@@ -121,9 +114,8 @@ void debugDumpUseXY(const atlas::Mesh &mesh, const std::string prefix)
   {
     char buf[256];
     sprintf(buf, "%sP.txt", prefix.c_str());
-    FILE *fp = fopen(buf, "w+");
-    for (int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++)
-    {
+    FILE* fp = fopen(buf, "w+");
+    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
       double x = xy(nodeIdx, atlas::LON);
       double y = xy(nodeIdx, atlas::LAT);
       fprintf(fp, "%f %f \n", x, y);
@@ -132,11 +124,10 @@ void debugDumpUseXY(const atlas::Mesh &mesh, const std::string prefix)
   }
 }
 
-int GetHorizontalEdge(const atlas::Mesh &m, int cellIdx)
-{
-  const auto &edgeToCell = m.edges().cell_connectivity();
-  const auto &cellToEdge = m.cells().edge_connectivity();
-  const auto &edgeToNode = m.edges().node_connectivity();
+int GetHorizontalEdge(const atlas::Mesh& m, int cellIdx) {
+  const auto& edgeToCell = m.edges().cell_connectivity();
+  const auto& cellToEdge = m.cells().edge_connectivity();
+  const auto& edgeToNode = m.edges().node_connectivity();
 
   auto latToRad = [](double rad) { return rad / 90. * (0.5 * M_PI); };
   auto lonlat = atlas::array::make_view<double, 2>(m.nodes().lonlat());
@@ -149,12 +140,10 @@ int GetHorizontalEdge(const atlas::Mesh &m, int cellIdx)
 
   double minVExtent = std::numeric_limits<double>::max();
   int horizontalEdge = -1;
-  for (int nbhIdx = 0; nbhIdx < 3; nbhIdx++)
-  {
+  for(int nbhIdx = 0; nbhIdx < 3; nbhIdx++) {
     int edgeIdx = cellToEdge(cellIdx, nbhIdx);
     double vExtent = verticalExtent(edgeIdx);
-    if (vExtent < minVExtent)
-    {
+    if(vExtent < minVExtent) {
       minVExtent = vExtent;
       horizontalEdge = nbhIdx;
     }
@@ -163,14 +152,13 @@ int GetHorizontalEdge(const atlas::Mesh &m, int cellIdx)
   return horizontalEdge;
 }
 
-std::vector<int> NbhV(const atlas::Mesh &m, int cellIdx)
-{
+std::vector<int> NbhV(const atlas::Mesh& m, int cellIdx) {
   auto latToRad = [](double rad) { return rad / 90. * (0.5 * M_PI); };
   auto lonlat = atlas::array::make_view<double, 2>(m.nodes().lonlat());
 
-  const auto &cellToEdge = m.cells().edge_connectivity();
-  const auto &edgeToCell = m.edges().cell_connectivity();
-  const auto &edgeToNode = m.edges().node_connectivity();
+  const auto& cellToEdge = m.cells().edge_connectivity();
+  const auto& edgeToCell = m.edges().cell_connectivity();
+  const auto& edgeToNode = m.edges().node_connectivity();
   assert(cellToEdge.cols(cellIdx) == 3);
 
   auto verticalExtent = [&](int edgeIdx) {
@@ -183,17 +171,14 @@ std::vector<int> NbhV(const atlas::Mesh &m, int cellIdx)
   int horizontalEdge = GetHorizontalEdge(m, cellIdx);
 
   std::vector<int> vNbh;
-  for (int nbhIdx = 0; nbhIdx < 3; nbhIdx++)
-  {
+  for(int nbhIdx = 0; nbhIdx < 3; nbhIdx++) {
     int edgeIdx = cellToEdge(cellIdx, nbhIdx);
     bool boundary = edgeToCell(edgeIdx, 0) == edgeToCell.missing_value() ||
                     edgeToCell(edgeIdx, 1) == edgeToCell.missing_value();
-    if (boundary)
-    {
+    if(boundary) {
       continue;
     }
-    if (nbhIdx == horizontalEdge)
-    {
+    if(nbhIdx == horizontalEdge) {
       continue;
     }
     vNbh.push_back(edgeToCell(edgeIdx, 0) == cellIdx ? edgeToCell(edgeIdx, 1)
@@ -203,14 +188,13 @@ std::vector<int> NbhV(const atlas::Mesh &m, int cellIdx)
   return vNbh;
 }
 
-int NbhH(const atlas::Mesh &m, int cellIdx)
-{
+int NbhH(const atlas::Mesh& m, int cellIdx) {
   auto latToRad = [](double rad) { return rad / 90. * (0.5 * M_PI); };
   auto lonlat = atlas::array::make_view<double, 2>(m.nodes().lonlat());
 
-  const auto &cellToEdge = m.cells().edge_connectivity();
-  const auto &edgeToCell = m.edges().cell_connectivity();
-  const auto &edgeToNode = m.edges().node_connectivity();
+  const auto& cellToEdge = m.cells().edge_connectivity();
+  const auto& edgeToCell = m.edges().cell_connectivity();
+  const auto& edgeToNode = m.edges().node_connectivity();
   assert(cellToEdge.cols(cellIdx) == 3);
 
   auto verticalExtent = [&](int edgeIdx) {
@@ -222,17 +206,14 @@ int NbhH(const atlas::Mesh &m, int cellIdx)
   double minVExtent = std::numeric_limits<double>::max();
   int horizontalEdge = GetHorizontalEdge(m, cellIdx);
 
-  for (int nbhIdx = 0; nbhIdx < 3; nbhIdx++)
-  {
+  for(int nbhIdx = 0; nbhIdx < 3; nbhIdx++) {
     int edgeIdx = cellToEdge(cellIdx, nbhIdx);
     bool boundary = edgeToCell(edgeIdx, 0) == edgeToCell.missing_value() ||
                     edgeToCell(edgeIdx, 1) == edgeToCell.missing_value();
-    if (boundary)
-    {
+    if(boundary) {
       continue;
     }
-    if (nbhIdx == horizontalEdge)
-    {
+    if(nbhIdx == horizontalEdge) {
       return (edgeToCell(edgeIdx, 0) == cellIdx ? edgeToCell(edgeIdx, 1) : edgeToCell(edgeIdx, 0));
     }
   }
@@ -240,16 +221,13 @@ int NbhH(const atlas::Mesh &m, int cellIdx)
   return -1;
 }
 
-bool HasBoundaryEdge(const atlas::Mesh &m, int cellIdx)
-{
-  const auto &cellToEdge = m.cells().edge_connectivity();
-  const auto &edgeToCell = m.edges().cell_connectivity();
-  for (int nbhIdx = 0; nbhIdx < cellToEdge.cols(cellIdx); nbhIdx++)
-  {
+bool HasBoundaryEdge(const atlas::Mesh& m, int cellIdx) {
+  const auto& cellToEdge = m.cells().edge_connectivity();
+  const auto& edgeToCell = m.edges().cell_connectivity();
+  for(int nbhIdx = 0; nbhIdx < cellToEdge.cols(cellIdx); nbhIdx++) {
     int edgeIdx = cellToEdge(cellIdx, nbhIdx);
-    if (edgeToCell(edgeIdx, 0) == edgeToCell.missing_value() ||
-        edgeToCell(edgeIdx, 1) == edgeToCell.missing_value())
-    {
+    if(edgeToCell(edgeIdx, 0) == edgeToCell.missing_value() ||
+       edgeToCell(edgeIdx, 1) == edgeToCell.missing_value()) {
       return true;
     }
   }
@@ -257,11 +235,10 @@ bool HasBoundaryEdge(const atlas::Mesh &m, int cellIdx)
 }
 
 // note: returns true if any one node is in the BB
-bool TriangleInBB(const atlas::Mesh &m, int cellIdx,
-                  const std::vector<std::tuple<double, double>> &xy,
-                  std::tuple<double, double> bblo, std::tuple<double, double> bbhi)
-{
-  const atlas::mesh::HybridElements::Connectivity &cellToNode = m.cells().node_connectivity();
+bool TriangleInBB(const atlas::Mesh& m, int cellIdx,
+                  const std::vector<std::tuple<double, double>>& xy,
+                  std::tuple<double, double> bblo, std::tuple<double, double> bbhi) {
+  const atlas::mesh::HybridElements::Connectivity& cellToNode = m.cells().node_connectivity();
   int node0 = cellToNode(cellIdx, 0);
   int node1 = cellToNode(cellIdx, 1);
   int node2 = cellToNode(cellIdx, 2);
@@ -279,9 +256,8 @@ bool TriangleInBB(const atlas::Mesh &m, int cellIdx,
 }
 } // namespace
 
-std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int startFace,
-                                            int numFaces)
-{
+std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh& parentMesh, int startFace,
+                                            int numFaces) {
 
   const int icosahedralFaces = 20;
   const int cellPerIcoFace = parentMesh.cells().size() / icosahedralFaces;
@@ -291,8 +267,7 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
 
   const bool dbgOut = false;
 
-  if (dbgOut)
-  {
+  if(dbgOut) {
     debugDump(subMesh, "netcdfMesh");
   }
 
@@ -300,14 +275,13 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
   auto lonToRad = [](double rad) { return rad / 180. * M_PI; };
 
   auto lonlat = atlas::array::make_view<double, 2>(subMesh.nodes().lonlat());
-  const atlas::mesh::HybridElements::Connectivity &cellToNode = subMesh.cells().node_connectivity();
-  const atlas::mesh::HybridElements::Connectivity &cellToEdge = subMesh.cells().edge_connectivity();
-  const atlas::mesh::HybridElements::Connectivity &edgeToNode = subMesh.edges().node_connectivity();
+  const atlas::mesh::HybridElements::Connectivity& cellToNode = subMesh.cells().node_connectivity();
+  const atlas::mesh::HybridElements::Connectivity& cellToEdge = subMesh.cells().edge_connectivity();
+  const atlas::mesh::HybridElements::Connectivity& edgeToNode = subMesh.edges().node_connectivity();
 
   // for ico faces 5-? the cartesian orientation is equal to the topological orientation
   std::vector<int> orientation(subMesh.cells().size());
-  for (int cellIdx = 0; cellIdx < subMesh.cells().size(); cellIdx++)
-  {
+  for(int cellIdx = 0; cellIdx < subMesh.cells().size(); cellIdx++) {
     int nodeIdx0 = cellToNode(cellIdx, 0);
     int nodeIdx1 = cellToNode(cellIdx, 1);
     int nodeIdx2 = cellToNode(cellIdx, 2);
@@ -319,21 +293,16 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
     std::vector<double> z = {R * sin(latRad0), R * sin(latRad1), R * sin(latRad2)};
     std::sort(z.begin(), z.end());
 
-    if (fabs(z[0] - z[1]) < fabs(z[1] - z[2]))
-    {
+    if(fabs(z[0] - z[1]) < fabs(z[1] - z[2])) {
       orientation[cellIdx] = -1;
-    }
-    else
-    {
+    } else {
       orientation[cellIdx] = +1;
     }
   }
 
-  if (dbgOut)
-  {
-    FILE *fp = fopen("orientation.txt", "w+");
-    for (int cellIdx = 0; cellIdx < subMesh.cells().size(); cellIdx++)
-    {
+  if(dbgOut) {
+    FILE* fp = fopen("orientation.txt", "w+");
+    for(int cellIdx = 0; cellIdx < subMesh.cells().size(); cellIdx++) {
       fprintf(fp, "%d\n", orientation[cellIdx]);
     }
     fclose(fp);
@@ -349,20 +318,15 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
   startCandidates.push_back(0);
   startCandidates.push_back(NbhV(subMesh, 0)[0]);
   bool lookHor = true;
-  while (true)
-  {
-    if (lookHor)
-    {
+  while(true) {
+    if(lookHor) {
       int hNbh = NbhH(subMesh, startCandidates.back());
-      if (hNbh == -1)
-      {
+      if(hNbh == -1) {
         break;
       }
       startCandidates.push_back(hNbh);
       lookHor = false;
-    }
-    else
-    {
+    } else {
       auto vNbh = NbhV(subMesh, startCandidates.back());
       startCandidates.push_back(startCandidates.end()[-2] == vNbh[0] ? vNbh[1] : vNbh[0]);
       lookHor = true;
@@ -375,13 +339,10 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
                [&](const int candIdx) { return HasBoundaryEdge(subMesh, candIdx); });
   startCells.pop_back(); // pop last corner
 
-  if (dbgOut)
-  {
-    FILE *fp = fopen("startStripe.txt", "w+");
-    for (auto cellIdx : startCells)
-    {
-      for (int node = 0; node < 3; node++)
-      {
+  if(dbgOut) {
+    FILE* fp = fopen("startStripe.txt", "w+");
+    for(auto cellIdx : startCells) {
+      for(int node = 0; node < 3; node++) {
         int nodeIdx = cellToNode(cellIdx, node);
         double lonRad = latToRad(lonlat(nodeIdx, atlas::LON));
         double latRad = latToRad(lonlat(nodeIdx, atlas::LAT));
@@ -394,8 +355,7 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
 
   // using the orientation computed each triangle can now be assigned a unique (I,J) index
   std::unordered_map<int, std::tuple<int, int>> cellIdxToIJ;
-  for (int vIdx = 0; vIdx < startCells.size(); vIdx++)
-  {
+  for(int vIdx = 0; vIdx < startCells.size(); vIdx++) {
     std::vector<int> stripeI;
     int cellIdx0 = startCells[vIdx];
     int cellIdx1 = NbhV(subMesh, startCells[vIdx])[0];
@@ -408,25 +368,21 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
 
     int hIdx = 2;
 
-    while (true)
-    {
+    while(true) {
       auto vNbh = NbhV(subMesh, stripeI.back());
 
-      if (vNbh.size() == 1 && stripeI.end()[-2] == vNbh[0])
-      {
+      if(vNbh.size() == 1 && stripeI.end()[-2] == vNbh[0]) {
         break;
       }
 
-      if (vNbh.size() == 1)
-      {
+      if(vNbh.size() == 1) {
         int cellIdx = vNbh[0];
         stripeI.push_back(cellIdx);
         cellIdxToIJ.emplace(cellIdx, std::tuple<int, int>{vIdx, hIdx});
         hIdx++;
         continue;
       }
-      if (vNbh.size() == 2)
-      {
+      if(vNbh.size() == 2) {
         int cellIdx = stripeI.end()[-2] == vNbh[0] ? vNbh[1] : vNbh[0];
         stripeI.push_back(cellIdx);
         cellIdxToIJ.emplace(cellIdx, std::tuple<int, int>{vIdx, hIdx});
@@ -434,15 +390,12 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
       }
     }
 
-    if (dbgOut)
-    {
+    if(dbgOut) {
       char fname[256];
       sprintf(fname, "stripe_%04d.txt", vIdx);
-      FILE *fp = fopen(fname, "w+");
-      for (auto cellIdx : stripeI)
-      {
-        for (int node = 0; node < 3; node++)
-        {
+      FILE* fp = fopen(fname, "w+");
+      for(auto cellIdx : stripeI) {
+        for(int node = 0; node < 3; node++) {
           int nodeIdx = cellToNode(cellIdx, node);
           double lonRad = latToRad(lonlat(nodeIdx, atlas::LON));
           double latRad = latToRad(lonlat(nodeIdx, atlas::LAT));
@@ -455,26 +408,24 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
   }
 
   int nI = std::get<0>(max_element(cellIdxToIJ.begin(), cellIdxToIJ.end(),
-                                   [](const std::pair<int, std::tuple<int, int>> &p1,
-                                      const std::pair<int, std::tuple<int, int>> &p2) {
+                                   [](const std::pair<int, std::tuple<int, int>>& p1,
+                                      const std::pair<int, std::tuple<int, int>>& p2) {
                                      return std::get<0>(p1.second) < std::get<0>(p1.second);
                                    })
                            ->second) +
            1;
   int nJ = std::get<1>(max_element(cellIdxToIJ.begin(), cellIdxToIJ.end(),
-                                   [](const std::pair<int, std::tuple<int, int>> &p1,
-                                      const std::pair<int, std::tuple<int, int>> &p2) {
+                                   [](const std::pair<int, std::tuple<int, int>>& p1,
+                                      const std::pair<int, std::tuple<int, int>>& p2) {
                                      return std::get<1>(p1.second) < std::get<1>(p1.second);
                                    })
                            ->second) +
            1;
 
-  if (dbgOut)
-  {
-    FILE *fpI = fopen("indexI.txt", "w+");
-    FILE *fpJ = fopen("indexJ.txt", "w+");
-    for (int cellIdx = 0; cellIdx < subMesh.cells().size(); cellIdx++)
-    {
+  if(dbgOut) {
+    FILE* fpI = fopen("indexI.txt", "w+");
+    FILE* fpJ = fopen("indexJ.txt", "w+");
+    for(int cellIdx = 0; cellIdx < subMesh.cells().size(); cellIdx++) {
       int i = std::get<0>(cellIdxToIJ[cellIdx]);
       int j = std::get<1>(cellIdxToIJ[cellIdx]);
       fprintf(fpI, "%d\n", i);
@@ -490,13 +441,10 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
   const double h = 0.5 * sqrt(3);
 
   auto safeWrite = [&](int idx, std::tuple<double, double> in) {
-    if (!written[idx])
-    {
+    if(!written[idx]) {
       written[idx] = true;
       newXY[idx] = in;
-    }
-    else
-    {
+    } else {
       auto [xOld, yOld] = newXY[idx];
       assert(fabs(std::get<0>(in) - xOld) < std::numeric_limits<double>::epsilon() * 1e3);
       assert(fabs(std::get<1>(in) - yOld) < std::numeric_limits<double>::epsilon() * 1e3);
@@ -505,8 +453,7 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
     newXY[idx] = in;
   };
 
-  for (int cellIdx = 0; cellIdx < subMesh.cells().size(); cellIdx++)
-  {
+  for(int cellIdx = 0; cellIdx < subMesh.cells().size(); cellIdx++) {
     // TODO: should I flip vertical index in order to not flip mesh topologically on its head
     // (lowest corner in space should have lowest index)?
     int vIdx = std::get<0>(cellIdxToIJ[cellIdx]);
@@ -525,19 +472,15 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
     double lon1 = lonlat(nodeIdx1, atlas::LON);
 
     int leftNode, rightNode;
-    if (lon0 < lon1)
-    {
+    if(lon0 < lon1) {
       leftNode = nodeIdx0;
       rightNode = nodeIdx1;
-    }
-    else
-    {
+    } else {
       leftNode = nodeIdx1;
       rightNode = nodeIdx0;
     }
 
-    if (orientation[cellIdx] == 1)
-    { // up
+    if(orientation[cellIdx] == 1) { // up
       double x0 = (hIdx - 1) * l + 0.5 * l + 0.5 * l * vIdx;
       double y0 = (vIdx)*h;
       double x1 = (hIdx + 1) * l - 0.5 * l + 0.5 * l * vIdx;
@@ -548,8 +491,7 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
       safeWrite(rightNode, {x1, y1});
     }
 
-    if (orientation[cellIdx] == -1)
-    { // down
+    if(orientation[cellIdx] == -1) { // down
       double x0 = (hIdx)*l + 0.5 * l * vIdx;
       double y0 = (vIdx + 1) * h;
       double x1 = (hIdx + 1) * l + 0.5 * l * vIdx;
@@ -580,18 +522,15 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
   std::tuple<double, double> bbHi(lowX + 2 * height, std::numeric_limits<double>::max());
 
   std::vector<int> keep;
-  for (int cellIdx = 0; cellIdx < subMesh.cells().size(); cellIdx++)
-  {
-    if (TriangleInBB(subMesh, cellIdx, newXY, bbLo, bbHi))
-    {
+  for(int cellIdx = 0; cellIdx < subMesh.cells().size(); cellIdx++) {
+    if(TriangleInBB(subMesh, cellIdx, newXY, bbLo, bbHi)) {
       keep.push_back(cellIdx);
     }
   }
 
   // create yet another atlas submesh only containing the rectangular subsection
   auto xyAtlas = atlas::array::make_view<double, 2>(subMesh.nodes().xy());
-  for (int i = 0; i < newXY.size(); i++)
-  {
+  for(int i = 0; i < newXY.size(); i++) {
     xyAtlas(i, atlas::LON) = std::get<0>(newXY[i]);
     xyAtlas(i, atlas::LAT) = std::get<1>(newXY[i]);
   }
@@ -603,8 +542,7 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
   double yMin = std::numeric_limits<double>::max();
   double xMax = -std::numeric_limits<double>::max();
   double yMax = -std::numeric_limits<double>::max();
-  for (int nodeIdx = 0; nodeIdx < rectangularMesh.nodes().size(); nodeIdx++)
-  {
+  for(int nodeIdx = 0; nodeIdx < rectangularMesh.nodes().size(); nodeIdx++) {
     double x = xyAtlasCompacted(nodeIdx, atlas::LON);
     double y = xyAtlasCompacted(nodeIdx, atlas::LAT);
     xMin = fmin(x, xMin);
@@ -616,8 +554,7 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
   double lY = yMax - yMin;
 
   // re-center
-  for (int nodeIdx = 0; nodeIdx < rectangularMesh.nodes().size(); nodeIdx++)
-  {
+  for(int nodeIdx = 0; nodeIdx < rectangularMesh.nodes().size(); nodeIdx++) {
     double x = xyAtlasCompacted(nodeIdx, atlas::LON);
     double y = xyAtlasCompacted(nodeIdx, atlas::LAT);
     xyAtlasCompacted(nodeIdx, atlas::LON) = x - xMin - lX / 2;
@@ -626,16 +563,14 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh &parentMesh, int s
 
   // scale (single scale factor to exactly preserve equilateral edge lengths)
   double scale = 180 / lY;
-  for (int nodeIdx = 0; nodeIdx < rectangularMesh.nodes().size(); nodeIdx++)
-  {
+  for(int nodeIdx = 0; nodeIdx < rectangularMesh.nodes().size(); nodeIdx++) {
     double x = xyAtlasCompacted(nodeIdx, atlas::LON);
     double y = xyAtlasCompacted(nodeIdx, atlas::LAT);
     xyAtlasCompacted(nodeIdx, atlas::LON) = x * scale;
     xyAtlasCompacted(nodeIdx, atlas::LAT) = y * scale;
   }
 
-  if (dbgOut)
-  {
+  if(dbgOut) {
     debugDumpUseXY(rectangularMesh, "rectMesh");
   }
 

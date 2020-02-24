@@ -44,6 +44,7 @@ void debugDump(const mylib::Grid& mesh, const std::string prefix) {
     fclose(fp);
   }
 }
+} // namespace
 
 mylib::Grid makeMylibMeshRect(int ny) {
   const auto& mesh = mylib::Grid(3 * ny, ny, false);
@@ -52,8 +53,9 @@ mylib::Grid makeMylibMeshRect(int ny) {
   double length = newHeight * 2;
 
   std::vector<int> keep;
-  std::tuple<double, double> bblo{0., 0.};
-  std::tuple<double, double> bbhi{length, std::numeric_limits<double>::max()};
+  std::tuple<double, double> bblo{0., -std::numeric_limits<double>::max()};
+  std::tuple<double, double> bbhi{length + 0.1 * (length / (2 * ny)),
+                                  std::numeric_limits<double>::max()};
   auto inBB = [&](double x, double y) {
     return x > std::get<0>(bblo) && y > std::get<1>(bblo) && x < std::get<0>(bbhi) &&
            y < std::get<1>(bbhi);
@@ -72,23 +74,24 @@ mylib::Grid makeMylibMeshRect(int ny) {
   }
 
   auto rectMesh = mylib::Grid(mesh, keep);
-  return rectMesh;
-}
-
-} // namespace
-
-int main(int argc, char const* argv[]) {
-  if(argc != 3) {
-    std::cout << "intended use is\n"
-              << argv[0] << " yRes"
-              << " output_file.nc" << std::endl;
-    return -1;
+  double xMin = std::numeric_limits<double>::max();
+  double yMin = std::numeric_limits<double>::max();
+  double xMax = -std::numeric_limits<double>::max();
+  double yMax = -std::numeric_limits<double>::max();
+  for(auto nodeIt : rectMesh.vertices()) {
+    double x = nodeIt.x();
+    double y = nodeIt.y();
+    xMin = fmin(x, xMin);
+    yMin = fmin(y, yMin);
+    xMax = fmax(x, xMax);
+    yMax = fmax(y, yMax);
   }
-
-  int ny = atoi(argv[1]);
-  std::string outFname(argv[2]);
-
-  auto mesh = makeMylibMeshRect(ny);
-
-  debugDump(mesh, "test");
+  double lX = xMax - xMin;
+  double lY = yMax - yMin;
+  // re-center
+  rectMesh.shift(-xMin - lX / 2, -yMin - lY / 2);
+  // scale (single scale factor to exactly preserve equilateral edge lengths)
+  double scale = 180 / lY;
+  rectMesh.scale(scale);
+  return rectMesh;
 }

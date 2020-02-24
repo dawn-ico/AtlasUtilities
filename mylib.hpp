@@ -14,6 +14,7 @@ namespace mylib {
 class Vertex;
 class Edge;
 class Face;
+class Grid;
 
 //   .---.---.---.
 //   |\ 1|\ 3|\ 5|
@@ -24,6 +25,8 @@ enum face_color { upward = 0, downward = 1 };
 enum edge_color { horizontal = 0, diagonal = 1, vertical = 2 };
 
 class Vertex {
+  friend Grid;
+
 public:
   Vertex() = default;
   Vertex(double x, double y, int id) : x_(x), y_(y), id_(id) {}
@@ -405,6 +408,9 @@ public:
 
   auto nx() const { return nx_; }
   auto ny() const { return ny_; }
+
+  void scale(double scale);
+  void shift(double sX, double sY);
 
 private:
   std::vector<Face> faces_;

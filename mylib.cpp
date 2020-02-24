@@ -97,4 +97,17 @@ std::ostream& toVtk(std::string const& name, FaceData<double> const& f_data, Gri
 
 void Vertex::add_edge(Edge& e) { edges_.push_back(&e); }
 
+void Grid::scale(double scale) {
+  for(auto& it : vertices_) {
+    it.x_ *= scale;
+    it.y_ *= scale;
+  }
+}
+void Grid::shift(double sX, double sY) {
+  for(auto& it : vertices_) {
+    it.x_ += sX;
+    it.y_ += sY;
+  }
+}
+
 } // namespace mylib
