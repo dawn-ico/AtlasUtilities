@@ -36,18 +36,15 @@
 #include <atlas/output/Gmsh.h>
 #include <atlas/util/CoordinateEnums.h>
 
-namespace
-{
+namespace {
 // dummy partition identifier. always zero throughout since this reader does not support
 // partitioning (yet)
 const int defaultPartition = 0;
 
 template <typename loadT>
-std::vector<loadT> LoadField(const netCDF::NcFile &dataFile, const std::string &name)
-{
+std::vector<loadT> LoadField(const netCDF::NcFile& dataFile, const std::string& name) {
   netCDF::NcVar data = dataFile.getVar(name.c_str());
-  if (data.isNull())
-  {
+  if(data.isNull()) {
     return {};
   }
   assert(data.getDimCount() == 1);
@@ -58,12 +55,10 @@ std::vector<loadT> LoadField(const netCDF::NcFile &dataFile, const std::string &
 }
 
 template <typename loadT>
-std::tuple<std::vector<loadT>, size_t, size_t> Load2DField(const netCDF::NcFile &dataFile,
-                                                           const std::string &name)
-{
+std::tuple<std::vector<loadT>, size_t, size_t> Load2DField(const netCDF::NcFile& dataFile,
+                                                           const std::string& name) {
   netCDF::NcVar data = dataFile.getVar(name.c_str());
-  if (data.isNull())
-  {
+  if(data.isNull()) {
     return {};
   }
   assert(data.getDimCount() == 2);
@@ -75,17 +70,14 @@ std::tuple<std::vector<loadT>, size_t, size_t> Load2DField(const netCDF::NcFile 
   return {ret, stride, elPerStride};
 }
 
-bool NodesFromNetCDF(const netCDF::NcFile &dataFile, atlas::Mesh &mesh)
-{
+bool NodesFromNetCDF(const netCDF::NcFile& dataFile, atlas::Mesh& mesh) {
   auto lon = LoadField<double>(dataFile, "vlon");
   auto lat = LoadField<double>(dataFile, "vlat");
-  if (lon.size() == 0 || lat.size() == 0)
-  {
+  if(lon.size() == 0 || lat.size() == 0) {
     std::cout << "lat / long variable not found\n";
     return false;
   }
-  if (lon.size() != lat.size())
-  {
+  if(lon.size() != lat.size()) {
     std::cout << "lat / long not of consistent sizes!\n";
     return false;
   }
@@ -94,7 +86,7 @@ bool NodesFromNetCDF(const netCDF::NcFile &dataFile, atlas::Mesh &mesh)
 
   // define nodes and associated properties for Atlas meshs
   mesh.nodes().resize(numNodes);
-  atlas::mesh::Nodes &nodes = mesh.nodes();
+  atlas::mesh::Nodes& nodes = mesh.nodes();
   auto lonlat = atlas::array::make_view<double, 2>(nodes.lonlat());
 
   // we currently don't care about parts, so myPart is always 0 and remotde_idx == glb_idx
@@ -109,8 +101,7 @@ bool NodesFromNetCDF(const netCDF::NcFile &dataFile, atlas::Mesh &mesh)
   auto radToLat = [](double rad) { return rad / (0.5 * M_PI) * 90; };
   auto radToLon = [](double rad) { return rad / (M_PI)*180; };
 
-  for (int nodeIdx = 0; nodeIdx < numNodes; nodeIdx++)
-  {
+  for(int nodeIdx = 0; nodeIdx < numNodes; nodeIdx++) {
     // following the same pattern here as in
     lonlat(nodeIdx, atlas::LON) = radToLon(lon[nodeIdx]);
     lonlat(nodeIdx, atlas::LAT) = radToLat(lat[nodeIdx]);
@@ -126,11 +117,9 @@ bool NodesFromNetCDF(const netCDF::NcFile &dataFile, atlas::Mesh &mesh)
   return true;
 }
 
-bool CellsFromNetCDF(const netCDF::NcFile &dataFile, atlas::Mesh &mesh)
-{
+bool CellsFromNetCDF(const netCDF::NcFile& dataFile, atlas::Mesh& mesh) {
   auto [cellToVertex, vertexPerCell, ncells] = Load2DField<int>(dataFile, "vertex_of_cell");
-  if (vertexPerCell != 3)
-  {
+  if(vertexPerCell != 3) {
     std::cout << "not a triangle mesh\n";
     return false;
   }
@@ -138,12 +127,11 @@ bool CellsFromNetCDF(const netCDF::NcFile &dataFile, atlas::Mesh &mesh)
   // define cells and associated properties
   mesh.cells().add(new atlas::mesh::temporary::Triangle(), ncells);
   auto cells_part = atlas::array::make_view<int, 1>(mesh.cells().partition());
-  atlas::mesh::HybridElements::Connectivity &node_connectivity = mesh.cells().node_connectivity();
+  atlas::mesh::HybridElements::Connectivity& node_connectivity = mesh.cells().node_connectivity();
   atlas::array::ArrayView<atlas::gidx_t, 1> glb_idx_cell =
       atlas::array::make_view<atlas::gidx_t, 1>(mesh.cells().global_index());
 
-  for (size_t cellIdx = 0; cellIdx < ncells; cellIdx++)
-  {
+  for(size_t cellIdx = 0; cellIdx < ncells; cellIdx++) {
     // indices in netcdf are 1 based, data is column major
     atlas::idx_t tri_nodes[3] = {cellToVertex[0 * ncells + cellIdx] - 1,
                                  cellToVertex[1 * ncells + cellIdx] - 1,
@@ -157,21 +145,17 @@ bool CellsFromNetCDF(const netCDF::NcFile &dataFile, atlas::Mesh &mesh)
 }
 
 template <typename ConnectivityT>
-bool AddNeighborList(const netCDF::NcFile &dataFile, atlas::Mesh &mesh,
+bool AddNeighborList(const netCDF::NcFile& dataFile, atlas::Mesh& mesh,
                      const std::string nbhListName, size_t yPerXExpected,
-                     ConnectivityT &connectivity)
-{
+                     ConnectivityT& connectivity) {
   auto [xToY, yPerX, numY] = Load2DField<int>(dataFile, nbhListName);
-  if (yPerX != yPerXExpected)
-  {
+  if(yPerX != yPerXExpected) {
     std::cout << "number of neighbors per element not as expected!\n";
     return false;
   }
-  for (size_t elemIdx = 0; elemIdx < numY; elemIdx++)
-  {
+  for(size_t elemIdx = 0; elemIdx < numY; elemIdx++) {
     atlas::idx_t yOfX[yPerX];
-    for (size_t innerIdx = 0; innerIdx < yPerX; innerIdx++)
-    {
+    for(size_t innerIdx = 0; innerIdx < yPerX; innerIdx++) {
       // indices in netcdf are 1 based, data is column major
       yOfX[innerIdx] = xToY[innerIdx * numY + elemIdx] - 1;
     }
@@ -183,58 +167,54 @@ bool AddNeighborList(const netCDF::NcFile &dataFile, atlas::Mesh &mesh,
 // Pre-allocate neighborhood table, snippet taken from
 // https://github.com/ecmwf/atlas/blob/98ff1f20dc883ba2dfd7658196622b9bc6d6fceb/src/atlas/mesh/actions/BuildEdges.cc#L73
 template <typename ConnectivityT>
-void AllocNbhTable(ConnectivityT &connectivity, int numElements, int nbhPerElem)
-{
+void AllocNbhTable(ConnectivityT& connectivity, int numElements, int nbhPerElem) {
   std::vector<int> init(numElements * nbhPerElem, connectivity.missing_value());
   connectivity.add(numElements, nbhPerElem, init.data());
 }
 } // namespace
 
-std::optional<atlas::Mesh> AtlasMeshFromNetCDFMinimal(const std::string &filename)
-{
-  try
-  {
+std::optional<atlas::Mesh> AtlasMeshFromNetCDFMinimal(const std::string& filename) {
+  try {
     atlas::Mesh mesh;
     netCDF::NcFile dataFile(filename.c_str(), netCDF::NcFile::read);
 
-    if (!NodesFromNetCDF(dataFile, mesh))
-    {
+    if(!NodesFromNetCDF(dataFile, mesh)) {
       return {};
     }
 
-    if (!CellsFromNetCDF(dataFile, mesh))
-    {
+    if(!CellsFromNetCDF(dataFile, mesh)) {
       return {};
     }
 
     return mesh;
-  }
-  catch (netCDF::exceptions::NcException &e)
-  {
+  } catch(netCDF::exceptions::NcException& e) {
     std::cout << e.what() << "\n";
     return std::nullopt;
   }
 }
 
-std::optional<atlas::Mesh> AtlasMeshFromNetCDFComplete(const std::string &filename)
-{
+std::optional<atlas::Mesh> AtlasMeshFromNetCDFComplete(const std::string& filename) {
   auto maybeMesh = AtlasMeshFromNetCDFMinimal(filename);
-  if (!maybeMesh.has_value())
-  {
+  if(!maybeMesh.has_value()) {
     return {};
   }
 
-  try
-  {
+  try {
     atlas::Mesh mesh = maybeMesh.value();
     netCDF::NcFile dataFile(filename.c_str(), netCDF::NcFile::read);
 
-    int numEdges = LoadField<int>(dataFile, "edge_index").size();
-    if (numEdges == 0)
-    {
+    int numEdgesA = LoadField<int>(dataFile, "edge_index").size();
+    int numEdgesB = LoadField<int>(dataFile, "elat").size();
+    // Explanation: base grids obtained from DWD feature only the edge_index field, while the files
+    // generated by using the web interface feature only the elat value.
+
+    if(numEdgesA == 0 && numEdgesB == 0) {
       std::cout << "no edges found in netcdf file!\n";
       return {};
     }
+
+    int numEdges = std::max(numEdgesA, numEdgesB);
+    assert(numEdges > 0);
 
     // had no edges so far, add them
     mesh.edges().add(new atlas::mesh::temporary::Line(), numEdges);
@@ -250,15 +230,13 @@ std::optional<atlas::Mesh> AtlasMeshFromNetCDFComplete(const std::string &filena
 
     // Edges
     AllocNbhTable(mesh.edges().cell_connectivity(), mesh.edges().size(), cellsPerEdge);
-    if (!AddNeighborList(dataFile, mesh, "adjacent_cell_of_edge", cellsPerEdge,
-                         mesh.edges().cell_connectivity()))
-    {
+    if(!AddNeighborList(dataFile, mesh, "adjacent_cell_of_edge", cellsPerEdge,
+                        mesh.edges().cell_connectivity())) {
       return {};
     }
     AllocNbhTable(mesh.edges().node_connectivity(), mesh.edges().size(), verticesPerEdge);
-    if (!AddNeighborList(dataFile, mesh, "edge_vertices", verticesPerEdge,
-                         mesh.edges().node_connectivity()))
-    {
+    if(!AddNeighborList(dataFile, mesh, "edge_vertices", verticesPerEdge,
+                        mesh.edges().node_connectivity())) {
       return {};
     }
     // edge to edge connectivity not supported so far
@@ -266,15 +244,13 @@ std::optional<atlas::Mesh> AtlasMeshFromNetCDFComplete(const std::string &filena
 
     // Nodes
     AllocNbhTable(mesh.nodes().cell_connectivity(), mesh.nodes().size(), cellsPerNode);
-    if (!AddNeighborList(dataFile, mesh, "cells_of_vertex", cellsPerNode,
-                         mesh.nodes().cell_connectivity()))
-    {
+    if(!AddNeighborList(dataFile, mesh, "cells_of_vertex", cellsPerNode,
+                        mesh.nodes().cell_connectivity())) {
       return {};
     }
     AllocNbhTable(mesh.nodes().edge_connectivity(), mesh.nodes().size(), edgesPerNode);
-    if (!AddNeighborList(dataFile, mesh, "edges_of_vertex", edgesPerNode,
-                         mesh.nodes().edge_connectivity()))
-    {
+    if(!AddNeighborList(dataFile, mesh, "edges_of_vertex", edgesPerNode,
+                        mesh.nodes().edge_connectivity())) {
       return {};
     }
     // ATLAS has no conn. tables for node to node
@@ -283,18 +259,15 @@ std::optional<atlas::Mesh> AtlasMeshFromNetCDFComplete(const std::string &filena
     // Cells
     // cell to node was already computed in AtlasMeshFromNetCDFMinimal
     AllocNbhTable(mesh.cells().edge_connectivity(), mesh.cells().size(), edgesPerCell);
-    if (!AddNeighborList(dataFile, mesh, "edge_of_cell", edgesPerCell,
-                         mesh.cells().edge_connectivity()))
-    {
+    if(!AddNeighborList(dataFile, mesh, "edge_of_cell", edgesPerCell,
+                        mesh.cells().edge_connectivity())) {
       return {};
     }
     // cell to cell supported by atlas but not present in ICON netcdf
     // AllocNbhTable(mesh.cells().cell_connectivity(), mesh.cells().size(), cellsPerEdge);
 
     return mesh;
-  }
-  catch (netCDF::exceptions::NcException &e)
-  {
+  } catch(netCDF::exceptions::NcException& e) {
     std::cout << e.what() << "\n";
     return std::nullopt;
   }

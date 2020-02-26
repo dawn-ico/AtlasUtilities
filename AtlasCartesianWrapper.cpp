@@ -15,6 +15,7 @@
 //===------------------------------------------------------------------------------------------===//
 
 #include "AtlasCartesianWrapper.h"
+#include <atlas/util/CoordinateEnums.h>
 
 static double length(const Point& p1, const Point& p2) {
   double dx = std::get<0>(p1) - std::get<0>(p2);
@@ -311,6 +312,17 @@ AtlasToCartesian::AtlasToCartesian(const atlas::Mesh& mesh, double scale, bool s
       carty = carty * sqrt(3) / 2.;
     }
 
+    nodeToCart[cellIdx] = {cartx, carty};
+  }
+}
+
+AtlasToCartesian::AtlasToCartesian(const atlas::Mesh& mesh)
+    : nodeToCart(mesh.nodes().size()), nodeToCartUnskewed(mesh.nodes().size()) {
+  auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
+  for(int cellIdx = 0; cellIdx < mesh.nodes().size(); cellIdx++) {
+    double cartx = xy(cellIdx, atlas::LON) / 180 * M_PI;
+    double carty = xy(cellIdx, atlas::LAT) / 90 * 0.5 * M_PI;
+    nodeToCartUnskewed[cellIdx] = {cartx, carty};
     nodeToCart[cellIdx] = {cartx, carty};
   }
 }

@@ -48,5 +48,6 @@ public:
   Point nodeLocation(int nodeIdx) const { return nodeToCart[nodeIdx]; }
   double dualCellArea(const atlas::Mesh& mesh, int nodeIdx) const;
 
-  explicit AtlasToCartesian(const atlas::Mesh& mesh, double scale = 1, bool skewTrafo = false);
+  explicit AtlasToCartesian(const atlas::Mesh& mesh, double scale, bool skewTrafo = false);
+  explicit AtlasToCartesian(const atlas::Mesh& mesh);
 };

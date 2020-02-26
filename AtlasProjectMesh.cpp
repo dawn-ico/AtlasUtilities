@@ -265,7 +265,7 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh& parentMesh, int s
       parentMesh,
       std::pair<int, int>{startFace * cellPerIcoFace, (startFace + numFaces) * cellPerIcoFace});
 
-  const bool dbgOut = false;
+  const bool dbgOut = true;
 
   if(dbgOut) {
     debugDump(subMesh, "netcdfMesh");
@@ -537,6 +537,7 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh& parentMesh, int s
 
   auto rectangularMesh = AtlasExtractSubMeshComplete(subMesh, keep);
   auto xyAtlasCompacted = atlas::array::make_view<double, 2>(rectangularMesh.nodes().xy());
+  auto lonlatAtlasCompacted = atlas::array::make_view<double, 2>(rectangularMesh.nodes().lonlat());
 
   double xMin = std::numeric_limits<double>::max();
   double yMin = std::numeric_limits<double>::max();
@@ -568,6 +569,8 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh& parentMesh, int s
     double y = xyAtlasCompacted(nodeIdx, atlas::LAT);
     xyAtlasCompacted(nodeIdx, atlas::LON) = x * scale;
     xyAtlasCompacted(nodeIdx, atlas::LAT) = y * scale;
+    lonlatAtlasCompacted(nodeIdx, atlas::LON) = xyAtlasCompacted(nodeIdx, atlas::LON);
+    lonlatAtlasCompacted(nodeIdx, atlas::LAT) = xyAtlasCompacted(nodeIdx, atlas::LAT);
   }
 
   if(dbgOut) {

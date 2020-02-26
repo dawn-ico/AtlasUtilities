@@ -106,7 +106,7 @@ bool AtlasToNetCDF(const atlas::Mesh& mesh, const std::string& filename) {
     if(mesh.edges().node_connectivity().rows() == 0) {
       std::cout << "WARNING: Partially complete mesh written to netcdf!\n";
     }
-    writeConnectivityTable(dataFile, "edge_vertices", mesh.edges().cell_connectivity(),
+    writeConnectivityTable(dataFile, "edge_vertices", mesh.edges().node_connectivity(),
                            mesh.edges().size(), nodesPerEdge);
 
     // lets emulate the edge_idx field found in the DWD base grids

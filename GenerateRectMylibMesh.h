@@ -46,7 +46,7 @@ void debugDump(const mylib::Grid& mesh, const std::string prefix) {
 }
 } // namespace
 
-mylib::Grid makeMylibMeshRect(int ny) {
+mylib::Grid MylibMeshRect(int ny) {
   const auto& mesh = mylib::Grid(3 * ny, ny, false);
 
   double newHeight = (ny - 1) * sqrt(3) / 2.;
