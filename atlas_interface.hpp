@@ -68,14 +68,17 @@ struct atlasTag {};
 
 template <typename T>
 class Field {
+private:
+  atlas::array::ArrayView<T, 2> atlas_field_;
+
 public:
   T const& operator()(int f, int k) const { return atlas_field_(f, k); }
   T& operator()(int f, int k) { return atlas_field_(f, k); }
 
   Field(atlas::array::ArrayView<T, 2> const& atlas_field) : atlas_field_(atlas_field) {}
-
-private:
-  atlas::array::ArrayView<T, 2> atlas_field_;
+  T* data() { return atlas_field_.data(); }
+  const T* data() const { return atlas_field_.data(); }
+  int numElements() const { return atlas_field_.shape(0) * atlas_field_.shape(1); }
 };
 
 template <typename T>
@@ -87,6 +90,9 @@ Field<T> vertexFieldType(atlasTag);
 
 template <typename T>
 class SparseDimension {
+private:
+  atlas::array::ArrayView<T, 3> sparse_dimension_;
+
 public:
   T const& operator()(int elem_idx, int sparse_dim_idx, int level) const {
     return sparse_dimension_(elem_idx, level, sparse_dim_idx);
@@ -95,11 +101,14 @@ public:
     return sparse_dimension_(elem_idx, level, sparse_dim_idx);
   }
 
+  T* data() { return sparse_dimension_.data(); }
+  const T* data() const { return sparse_dimension_.data(); }
+  int numElements() const {
+    return sparse_dimension_.shape(0) * sparse_dimension_.shape(1) * sparse_dimension_.shape(2);
+  }
+
   SparseDimension(atlas::array::ArrayView<T, 3> const& sparse_dimension)
       : sparse_dimension_(sparse_dimension) {}
-
-private:
-  atlas::array::ArrayView<T, 3> sparse_dimension_;
 };
 
 template <typename T>
@@ -111,11 +120,17 @@ SparseDimension<T> sparseVertexFieldType(atlasTag);
 
 atlas::Mesh meshType(atlasTag);
 
-auto getCells(atlasTag, atlas::Mesh const& m) { return utility::irange(0, m.cells().size()); }
-auto getEdges(atlasTag, atlas::Mesh const& m) { return utility::irange(0, m.edges().size()); }
-auto getVertices(atlasTag, atlas::Mesh const& m) { return utility::irange(0, m.nodes().size()); }
+inline auto getCells(atlasTag, atlas::Mesh const& m) {
+  return utility::irange(0, m.cells().size());
+}
+inline auto getEdges(atlasTag, atlas::Mesh const& m) {
+  return utility::irange(0, m.edges().size());
+}
+inline auto getVertices(atlasTag, atlas::Mesh const& m) {
+  return utility::irange(0, m.nodes().size());
+}
 
-std::vector<int> getNeighs(const atlas::Mesh::HybridElements::Connectivity& conn, int idx) {
+inline std::vector<int> getNeighs(const atlas::Mesh::HybridElements::Connectivity& conn, int idx) {
   std::vector<int> neighs;
   for(int n = 0; n < conn.cols(idx); ++n) {
     neighs.emplace_back(conn(idx, n));
@@ -123,7 +138,7 @@ std::vector<int> getNeighs(const atlas::Mesh::HybridElements::Connectivity& conn
   return neighs;
 }
 
-std::vector<int> getNeighs(const atlas::mesh::Nodes::Connectivity& conn, int idx) {
+inline std::vector<int> getNeighs(const atlas::mesh::Nodes::Connectivity& conn, int idx) {
   std::vector<int> neighs;
   for(int n = 0; n < conn.cols(idx); ++n) {
     neighs.emplace_back(conn(idx, n));
@@ -131,7 +146,7 @@ std::vector<int> getNeighs(const atlas::mesh::Nodes::Connectivity& conn, int idx
   return neighs;
 }
 
-std::vector<int> const& cellNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
+inline std::vector<int> const& cellNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
   // note this is only a workaround and does only work as long as we have only one mesh
   static std::map<int, std::vector<int>> neighs;
   if(neighs.count(idx) == 0) {
@@ -152,7 +167,7 @@ std::vector<int> const& cellNeighboursOfCell(atlas::Mesh const& m, int const& id
   return neighs[idx];
 }
 
-std::vector<int> const& edgeNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
+inline std::vector<int> const& edgeNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
   // note this is only a workaround and does only work as long as we have only one mesh
   static std::map<int, std::vector<int>> neighs;
   if(neighs.count(idx) == 0) {
@@ -161,7 +176,7 @@ std::vector<int> const& edgeNeighboursOfCell(atlas::Mesh const& m, int const& id
   return neighs[idx];
 }
 
-std::vector<int> const& nodeNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
+inline std::vector<int> const& nodeNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
   // note this is only a workaround and does only work as long as we have only one mesh
   static std::map<int, std::vector<int>> neighs;
   if(neighs.count(idx) == 0) {
@@ -170,7 +185,7 @@ std::vector<int> const& nodeNeighboursOfCell(atlas::Mesh const& m, int const& id
   return neighs[idx];
 }
 
-std::vector<int> cellNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
+inline std::vector<int> cellNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
   // note this is only a workaround and does only work as long as we have only one mesh
   static std::map<int, std::vector<int>> neighs;
   if(neighs.count(idx) == 0) {
@@ -180,7 +195,7 @@ std::vector<int> cellNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
   return neighs[idx];
 }
 
-std::vector<int> nodeNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
+inline std::vector<int> nodeNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
   // note this is only a workaround and does only work as long as we have only one mesh
   static std::map<int, std::vector<int>> neighs;
   if(neighs.count(idx) == 0) {
@@ -190,7 +205,7 @@ std::vector<int> nodeNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
   return neighs[idx];
 }
 
-std::vector<int> cellNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
+inline std::vector<int> cellNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
   // note this is only a workaround and does only work as long as we have only one mesh
   static std::map<int, std::vector<int>> neighs;
   if(neighs.count(idx) == 0) {
@@ -199,7 +214,7 @@ std::vector<int> cellNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
   return neighs[idx];
 }
 
-std::vector<int> edgeNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
+inline std::vector<int> edgeNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
   // note this is only a workaround and does only work as long as we have only one mesh
   static std::map<int, std::vector<int>> neighs;
   if(neighs.count(idx) == 0) {
@@ -208,7 +223,7 @@ std::vector<int> edgeNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
   return neighs[idx];
 }
 
-std::vector<int> nodeNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
+inline std::vector<int> nodeNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
   // note this is only a workaround and does only work as long as we have only one mesh
   static std::map<int, std::vector<int>> neighs;
   if(neighs.count(idx) == 0) {
