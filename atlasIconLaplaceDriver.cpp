@@ -102,12 +102,12 @@ void debugDump(const atlas::Mesh& mesh, const std::string prefix) {
 }
 
 int main() {
-  int w = 32;
+  int w = 64;
   int k_size = 1;
   const int level = 0;
   double lDomain = M_PI;
 
-  const bool dbg_out = true;
+  const bool dbg_out = false;
   const bool readMeshFromDisk = false;
 
   atlas::Mesh mesh;
@@ -157,6 +157,13 @@ int main() {
   //    this is, confusingly, called vec_e, even though it is a scalar
   //    _conceptually_, this can be regarded as a vector with implicit direction (presumably
   //    normal to edge direction)
+
+  //===------------------------------------------------------------------------------------------===//
+  // control field holding the analytical solution for the divergence
+  //===------------------------------------------------------------------------------------------===//
+  atlas::Field divVecSol_F{"divVecSol", atlas::array::DataType::real64(),
+                           atlas::array::make_shape(mesh.edges().size(), 1)};
+  atlasInterface::Field<double> divVecSol = atlas::array::make_view<double, 2>(divVecSol_F);
 
   //===------------------------------------------------------------------------------------------===//
   // output field (field containing the computed laplacian)
@@ -318,6 +325,11 @@ int main() {
             0.5 * sqrt(15. / (2 * M_PI)) * cos(x) * cos(y) * sin(y)};
   };
 
+  auto analyticalDivergence = [](double x, double y) {
+    return 1. / (2 * sqrt(2 * M_PI)) *
+           (sqrt(105) * sin(2 * x) * cos(y) * cos(y) * sin(y) + sqrt(15.) * cos(x) * cos(2 * y));
+  };
+
   // init zero and test function
   FILE* fp = fopen("sphericalHarmonics.txt", "w+");
   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
@@ -325,6 +337,7 @@ int main() {
     auto [u, v] = sphericalHarmonic(xm, ym);
     double normalWind = primal_normal_x(edgeIdx, level) * u + primal_normal_y(edgeIdx, level) * v;
     vec(edgeIdx, level) = normalWind;
+    divVecSol(edgeIdx, level) = analyticalDivergence(xm, ym);
     nabla2_vec(edgeIdx, level) = 0;
     fprintf(fp, "%f %f %f %f\n", xm, ym, u, v);
   }
@@ -340,6 +353,7 @@ int main() {
   }
 
   if(dbg_out) {
+    dumpEdgeField("laplICONatlas_divAnalytical.txt", mesh, wrapper, divVecSol, level);
     dumpCellField("laplICONatlas_areaCell.txt", mesh, wrapper, cell_area, level);
     dumpNodeField("laplICONatlas_areaCellDual.txt", mesh, wrapper, dual_cell_area, level);
   }
@@ -506,6 +520,28 @@ int main() {
   // dumping a hopefully nice colorful laplacian
   //===------------------------------------------------------------------------------------------===//
   dumpEdgeField("laplICONatlas_out.txt", mesh, wrapper, nabla2_vec, level);
+
+  //===------------------------------------------------------------------------------------------===//
+  // measuring errors
+  //===------------------------------------------------------------------------------------------===//
+  {
+    double Linf = 0;
+    double L1 = 0;
+    double L2 = 0;
+    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+      double diff = div_vec(edgeIdx, level) - divVecSol(edgeIdx, level);
+      if(diff > 10.) { // check outliers
+        continue;
+      }
+      Linf = fmax(Linf, diff);
+      L1 += fabs(diff);
+      L2 += diff * diff;
+      // printf("%f\n", diff);
+    }
+    L1 /= mesh.edges().size();
+    L2 /= mesh.edges().size();
+    printf("errors divergence: Linf: %e, L1 %e, L2 %e\n", Linf, L1, L2);
+  }
 
   return 0;
 }
