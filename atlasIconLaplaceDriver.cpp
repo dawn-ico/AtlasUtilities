@@ -21,6 +21,7 @@
 //===------------------------------------------------------------------------------------------===//
 
 #include <cmath>
+#include <fenv.h>
 #include <vector>
 
 #include "AtlasCartesianWrapper.h"
@@ -70,6 +71,7 @@ void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
                    atlasInterface::Field<double>& field_x, atlasInterface::Field<double>& field_y,
                    int level, std::optional<Orientation> color = std::nullopt);
 
+namespace {
 void debugDump(const atlas::Mesh& mesh, const std::string prefix) {
   auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
   const atlas::mesh::HybridElements::Connectivity& node_connectivity =
@@ -100,14 +102,21 @@ void debugDump(const atlas::Mesh& mesh, const std::string prefix) {
     fclose(fp);
   }
 }
+} // namespace
 
-int main() {
-  int w = 64;
+int main(int argc, char const* argv[]) {
+  feenableexcept(FE_INVALID | FE_OVERFLOW);
+
+  if(argc != 2) {
+    std::cout << "intended use is\n" << argv[0] << " ny" << std::endl;
+    return -1;
+  }
+  int w = atoi(argv[1]);
   int k_size = 1;
   const int level = 0;
   double lDomain = M_PI;
 
-  const bool dbg_out = false;
+  const bool dbg_out = true;
   const bool readMeshFromDisk = false;
 
   atlas::Mesh mesh;
@@ -132,7 +141,6 @@ int main() {
     debugDump(mesh, "testCaseMesh");
   }
 
-  const bool skewToEquilateral = true;
   AtlasToCartesian wrapper(mesh);
 
   if(dbg_out) {
@@ -154,6 +162,13 @@ int main() {
   atlas::Field vec_F{"vec", atlas::array::DataType::real64(),
                      atlas::array::make_shape(mesh.edges().size(), 1)};
   atlasInterface::Field<double> vec = atlas::array::make_view<double, 2>(vec_F);
+
+  atlas::Field vec_EF{"vecE", atlas::array::DataType::real64(),
+                      atlas::array::make_shape(mesh.edges().size(), 1)};
+  atlasInterface::Field<double> divVecSolEdge = atlas::array::make_view<double, 2>(vec_EF);
+  atlas::Field vec_Avg{"vecAvg", atlas::array::DataType::real64(),
+                       atlas::array::make_shape(mesh.edges().size(), 1)};
+  atlasInterface::Field<double> divVecAvgEdge = atlas::array::make_view<double, 2>(vec_Avg);
   //    this is, confusingly, called vec_e, even though it is a scalar
   //    _conceptually_, this can be regarded as a vector with implicit direction (presumably
   //    normal to edge direction)
@@ -162,7 +177,7 @@ int main() {
   // control field holding the analytical solution for the divergence
   //===------------------------------------------------------------------------------------------===//
   atlas::Field divVecSol_F{"divVecSol", atlas::array::DataType::real64(),
-                           atlas::array::make_shape(mesh.edges().size(), 1)};
+                           atlas::array::make_shape(mesh.cells().size(), 1)};
   atlasInterface::Field<double> divVecSol = atlas::array::make_view<double, 2>(divVecSol_F);
 
   //===------------------------------------------------------------------------------------------===//
@@ -325,23 +340,37 @@ int main() {
             0.5 * sqrt(15. / (2 * M_PI)) * cos(x) * cos(y) * sin(y)};
   };
 
+  // auto analyticalDivergence = [](double x, double y) {
+  //   return 1. / (2 * sqrt(2 * M_PI)) *
+  //          (sqrt(105) * sin(2 * x) * cos(y) * cos(y) * sin(y) + sqrt(15.) * cos(x) * cos(2 * y));
+  // };
+
   auto analyticalDivergence = [](double x, double y) {
-    return 1. / (2 * sqrt(2 * M_PI)) *
-           (sqrt(105) * sin(2 * x) * cos(y) * cos(y) * sin(y) + sqrt(15.) * cos(x) * cos(2 * y));
+    return -0.5 * (sqrt(105. / (2 * M_PI))) * sin(2 * x) * cos(y) * cos(y) * sin(y) +
+           0.5 * sqrt(15. / (2 * M_PI)) * cos(x) * (cos(y) * cos(y) - sin(y) * sin(y));
   };
 
   // init zero and test function
-  FILE* fp = fopen("sphericalHarmonics.txt", "w+");
+  FILE* fp = fopen("normalWind.txt", "w+");
   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
     auto [xm, ym] = wrapper.edgeMidpoint(mesh, edgeIdx);
     auto [u, v] = sphericalHarmonic(xm, ym);
     double normalWind = primal_normal_x(edgeIdx, level) * u + primal_normal_y(edgeIdx, level) * v;
     vec(edgeIdx, level) = normalWind;
-    divVecSol(edgeIdx, level) = analyticalDivergence(xm, ym);
+    divVecSolEdge(edgeIdx, level) = analyticalDivergence(xm, ym);
+
     nabla2_vec(edgeIdx, level) = 0;
-    fprintf(fp, "%f %f %f %f\n", xm, ym, u, v);
+    fprintf(fp, "%f %f %f\n", xm, ym, normalWind);
   }
   fclose(fp);
+
+  for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+    auto [xm, ym] = wrapper.cellMidpoint(mesh, cellIdx);
+    divVecSol(cellIdx, level) = analyticalDivergence(xm, ym);
+  }
+
+  dumpEdgeField("laplICONatlas_divEdgeAnalytical.txt", mesh, wrapper, divVecSolEdge, level);
+  dumpCellField("laplICONatlas_divAnalytical.txt", mesh, wrapper, divVecSol, level);
 
   // init geometric info for cells
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
@@ -353,7 +382,6 @@ int main() {
   }
 
   if(dbg_out) {
-    dumpEdgeField("laplICONatlas_divAnalytical.txt", mesh, wrapper, divVecSol, level);
     dumpCellField("laplICONatlas_areaCell.txt", mesh, wrapper, cell_area, level);
     dumpNodeField("laplICONatlas_areaCellDual.txt", mesh, wrapper, dual_cell_area, level);
   }
@@ -392,15 +420,21 @@ int main() {
     const int missingVal = nodeEdgeConnectivity.missing_value();
     int numNbh = nodeEdgeConnectivity.cols(nodeIdx);
 
+    // arbitrary val at boundary
     if(numNbh != 6) {
-      continue;
+      for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
+        edge_orientation_vertex(nodeIdx, nbhIdx, level) = -1;
+      }
     }
 
     auto nbh = nodeNeighboursOfNode(mesh, nodeIdx);
     auto [cx, cy] = wrapper.nodeLocation(nodeIdx);
 
+    // arbitrary val at boundary
     if(nbh.size() != 6) {
-      continue;
+      for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
+        edge_orientation_vertex(nodeIdx, nbhIdx, level) = -1;
+      }
     }
 
     for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
@@ -459,9 +493,14 @@ int main() {
 
     for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
       int edgeIdx = nodeEdgeConnectivity(nodeIdx, nbhIdx);
-      geofac_rot(nodeIdx, nbhIdx, level) = dual_edge_length(edgeIdx, level) *
-                                           edge_orientation_vertex(nodeIdx, nbhIdx, level) /
-                                           dual_cell_area(nodeIdx, level);
+      double d1 = dual_cell_area(nodeIdx, level);
+      double d2 = dual_edge_length(nodeIdx, level);
+      double d3 = edge_orientation_vertex(nodeIdx, nbhIdx, level);
+      geofac_rot(nodeIdx, nbhIdx, level) =
+          (dual_cell_area(nodeIdx, level) == 0.)
+              ? 0
+              : dual_edge_length(edgeIdx, level) * edge_orientation_vertex(nodeIdx, nbhIdx, level) /
+                    dual_cell_area(nodeIdx, level);
     }
     // ptr_int%geofac_rot(jv,je,jb) =                &
     //    & ptr_patch%edges%dual_edge_length(ile,ibe) * &
@@ -497,10 +536,28 @@ int main() {
       primal_edge_length, dual_edge_length, tangent_orientation, geofac_rot, geofac_div)
       .run();
 
-  if(dbg_out) {
-    dumpCellField("laplICONatlas_div.txt", mesh, wrapper, div_vec, level);
-    dumpNodeField("laplICONatlas_rot.txt", mesh, wrapper, rot_vec, level);
+  // checking if averaging cell neighbors to edge improves L_inf norm shows that this is not the
+  // case
+  //
+  // {
+  //   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+  //     const auto& conn = mesh.edges().cell_connectivity();
+  //     double avg = 0.;
+  //     int nnbh = 0;
+  //     for(int nbhIdx = 0; nbhIdx < conn.cols(edgeIdx); nbhIdx++) {
+  //       int cellIdx = conn(edgeIdx, nbhIdx);
+  //       if(cellIdx == conn.missing_value()) {
+  //         continue;
+  //       }
+  //       avg += div_vec(cellIdx, level);
+  //       nnbh++;
+  //     }
+  //     assert(nnbh > 0);
+  //     divVecAvgEdge(edgeIdx, level) = avg / nnbh;
+  //   }
+  // }
 
+  if(dbg_out) {
     dumpEdgeField("laplICONatlas_rotH.txt", mesh, wrapper, nabla2t1_vec, level,
                   Orientation::Horizontal);
     dumpEdgeField("laplICONatlas_rotV.txt", mesh, wrapper, nabla2t1_vec, level,
@@ -517,8 +574,11 @@ int main() {
   }
 
   //===------------------------------------------------------------------------------------------===//
-  // dumping a hopefully nice colorful laplacian
+  // dumping a hopefully nice colorful divergence, curl & laplacian
   //===------------------------------------------------------------------------------------------===//
+  dumpCellField("laplICONatlas_div.txt", mesh, wrapper, div_vec, level);
+  // dumpEdgeField("laplICONatlas_divE.txt", mesh, wrapper, divVecAvgEdge, level);
+  dumpNodeField("laplICONatlas_rot.txt", mesh, wrapper, rot_vec, level);
   dumpEdgeField("laplICONatlas_out.txt", mesh, wrapper, nabla2_vec, level);
 
   //===------------------------------------------------------------------------------------------===//
@@ -528,20 +588,40 @@ int main() {
     double Linf = 0;
     double L1 = 0;
     double L2 = 0;
-    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-      double diff = div_vec(edgeIdx, level) - divVecSol(edgeIdx, level);
+    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+      double diff = div_vec(cellIdx, level) - divVecSol(cellIdx, level);
       if(diff > 10.) { // check outliers
         continue;
       }
-      Linf = fmax(Linf, diff);
+      Linf = fmax(Linf, fabs(diff));
       L1 += fabs(diff);
       L2 += diff * diff;
-      // printf("%f\n", diff);
     }
-    L1 /= mesh.edges().size();
-    L2 /= mesh.edges().size();
+    L1 /= mesh.cells().size();
+    L2 = sqrt(L2) / sqrt(mesh.cells().size());
     printf("errors divergence: Linf: %e, L1 %e, L2 %e\n", Linf, L1, L2);
+    printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
   }
+
+  // {
+  //   double Linf = 0;
+  //   double L1 = 0;
+  //   double L2 = 0;
+  //   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+  //     double diff = divVecAvgEdge(edgeIdx, level) - divVecSolEdge(edgeIdx, level);
+  //     if(diff > 10.) { // check outliers
+  //       continue;
+  //     }
+  //     Linf = fmax(Linf, fabs(diff));
+  //     L1 += fabs(diff);
+  //     L2 += diff * diff;
+  //     // printf("%f\n", diff);
+  //   }
+  //   L1 /= mesh.cells().size();
+  //   L2 = sqrt(L2) / sqrt(mesh.cells().size());
+  //   // printf("errors divergence: Linf: %e, L1 %e, L2 %e\n", Linf, L1, L2);
+  //   printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+  // }
 
   return 0;
 }
