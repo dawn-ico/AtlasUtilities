@@ -97,7 +97,7 @@ private:
                 (m_nabla2t2_vec(deref(LibTag{}, loc), k + 0) /
                  m_dual_edge_length(deref(LibTag{}, loc), k + 0));
             m_nabla2_vec(deref(LibTag{}, loc), k + 0) =
-                (m_nabla2t1_vec(deref(LibTag{}, loc), k + 0) -
+                (-m_nabla2t1_vec(deref(LibTag{}, loc), k + 0) +
                  m_nabla2t2_vec(deref(LibTag{}, loc), k + 0));
           }
         }

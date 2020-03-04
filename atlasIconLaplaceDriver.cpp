@@ -367,26 +367,25 @@ int main(int argc, char const* argv[]) {
     dumpEdgeField("laplICONatlas_dnrm.txt", mesh, wrapper, dual_normal_x, dual_normal_y, level);
   }
 
-  auto wave = [](double px, double py) { return sin(px) * sin(py); };
-  auto constant = [](double px, double py) { return 1.; };
-  auto lin = [](double px, double py) { return px; };
-
   auto sphericalHarmonic = [](double x, double y) -> std::tuple<double, double> {
     return {0.25 * sqrt(105. / (2 * M_PI)) * cos(2 * x) * cos(y) * cos(y) * sin(y),
             0.5 * sqrt(15. / (2 * M_PI)) * cos(x) * cos(y) * sin(y)};
   };
-
   auto analyticalDivergence = [](double x, double y) {
     return -0.5 * (sqrt(105. / (2 * M_PI))) * sin(2 * x) * cos(y) * cos(y) * sin(y) +
            0.5 * sqrt(15. / (2 * M_PI)) * cos(x) * (cos(y) * cos(y) - sin(y) * sin(y));
   };
-
   auto analyticalCurl = [](double x, double y) {
     double c1 = 0.25 * sqrt(105. / (2 * M_PI));
     double c2 = 0.5 * sqrt(15. / (2 * M_PI));
     double dudy = c1 * cos(2 * x) * cos(y) * (cos(y) * cos(y) - 2 * sin(y) * sin(y));
     double dvdx = -c2 * cos(y) * sin(x) * sin(y);
     return dvdx - dudy;
+  };
+  auto analyticalLaplacian = [](double x, double y) -> std::tuple<double, double> {
+    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
+    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
+    return {-4 * c1 * cos(2 * x) * cos(y) * cos(y) * sin(y), -4 * c2 * cos(x) * sin(y) * cos(y)};
   };
 
   // init zero and test function
@@ -605,6 +604,18 @@ int main(int argc, char const* argv[]) {
     fclose(fp);
   }
 
+  {
+    FILE* fp = fopen("laplRef.txt", "w+");
+    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+      auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
+      auto [lx, ly] = analyticalLaplacian(x, y);
+      auto [nx, ny] = std::tuple<double, double>{primal_normal_x(edgeIdx, level),
+                                                 primal_normal_x(edgeIdx, level)};
+      fprintf(fp, "%f %f %f\n", x, y, lx * nx + ly * ny);
+    }
+    fclose(fp);
+  }
+
   if(dbg_out) {
     dumpEdgeField("laplICONatlas_rotH.txt", mesh, wrapper, nabla2t1_vec, level,
                   Orientation::Horizontal);
@@ -748,7 +759,8 @@ void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
       continue;
     }
     auto [xm, ym] = wrapper.edgeMidpoint(mesh, edgeIdx);
-    fprintf(fp, "%f %f %f\n", xm, ym, field(edgeIdx, level));
+    fprintf(fp, "%f %f %f\n", xm, ym,
+            std::isfinite(field(edgeIdx, level)) ? field(edgeIdx, level) : 0.);
   }
   fclose(fp);
 }

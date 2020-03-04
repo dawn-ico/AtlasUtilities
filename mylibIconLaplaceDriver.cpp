@@ -198,8 +198,13 @@ void debugDumpMesh(const mylib::Grid& mesh, const std::string prefix) {
   }
 }
 
-int main() {
-  int w = 32;
+int main(int argc, char const* argv[]) {
+  if(argc != 2) {
+    std::cout << "intended use is\n" << argv[0] << " ny" << std::endl;
+    return -1;
+  }
+  int w = atoi(argv[1]);
+
   int k_size = 1;
   const int level = 0;
   double lDomain = M_PI;
@@ -330,27 +335,28 @@ int main() {
     dumpField("laplICONmylib_dnrm.txt", mesh, dual_normal_x, dual_normal_y, level);
   }
 
-  auto wave = [](double px, double py) { return sin(px) * sin(py); };
-  auto constant = [](double px, double py) { return 1.; };
-  auto lin = [](double px, double py) { return px; };
-
   auto sphericalHarmonic = [](double x, double y) -> std::tuple<double, double> {
     double c1 = 0.25 * sqrt(105. / (2 * M_PI));
     double c2 = 0.5 * sqrt(15. / (2 * M_PI));
     return {c1 * cos(2 * x) * cos(y) * cos(y) * sin(y), c2 * cos(x) * cos(y) * sin(y)};
   };
-
-  auto vectorLaplacian = [](double x, double y) -> std::tuple<double, double> {
+  auto analyticalDivergence = [](double x, double y) {
+    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
+    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
+    return -2 * c1 * sin(2 * x) * cos(y) * cos(y) * sin(y) +
+           c2 * cos(x) * (cos(y) * cos(y) - sin(y) * sin(y));
+  };
+  auto analyticalCurl = [](double x, double y) {
+    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
+    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
+    double dudy = c1 * cos(2 * x) * cos(y) * (cos(y) * cos(y) - 2 * sin(y) * sin(y));
+    double dvdx = -c2 * cos(y) * sin(x) * sin(y);
+    return dvdx - dudy;
+  };
+  auto analyticalLaplacian = [](double x, double y) -> std::tuple<double, double> {
     double c1 = 0.25 * sqrt(105. / (2 * M_PI));
     double c2 = 0.5 * sqrt(15. / (2 * M_PI));
     return {-4 * c1 * cos(2 * x) * cos(y) * cos(y) * sin(y), -4 * c2 * cos(x) * sin(y) * cos(y)};
-  };
-
-  auto curl = [](double x, double y) -> std::tuple<double, double> {
-    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
-    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
-    return {c1 * cos(2 * x) * cos(y) * (cos(y) * cos(y) - 2 * sin(y) * sin(y)),
-            -c2 * cos(y) * sin(x) * sin(y)};
   };
 
   // init zero and test function
@@ -369,18 +375,6 @@ int main() {
 
   if(dbg_out) {
     dumpField("laplICONmylib_in.txt", mesh, vecN, level);
-  }
-
-  mylib::VertexData<double> rotSolx(mesh, k_size);
-  mylib::VertexData<double> rotSoly(mesh, k_size);
-  for(const auto& v : mesh.vertices()) {
-    auto [cu, cv] = curl(v.x(), v.y());
-    rotSolx(v, level) = cu;
-    rotSoly(v, level) = cv;
-  }
-  if(dbg_out) {
-    dumpField("laplICONmylib_curlX.txt", mesh, rotSolx, level);
-    dumpField("laplICONmylib_curlY.txt", mesh, rotSoly, level);
   }
 
   // init geometric info for cells
@@ -418,16 +412,8 @@ int main() {
           mylib::Vertex(v.vertex(m_sparse).x() - v.x(), v.vertex(m_sparse).y() - v.y(), -1);
       mylib::Vertex dual = mylib::Vertex(dual_normal_x(*e, level), dual_normal_y(*e, level), -1);
       edge_orientation_vertex(v, m_sparse, level) = sgn(dot(testVec, dual));
-
-      auto [xm, ym] = EdgeMidpoint(*e);
-      printf("%f %f %f %f\n", xm, ym,
-             primal_normal_x(*e, level) * edge_orientation_vertex(v, m_sparse, level),
-             primal_normal_y(*e, level) * edge_orientation_vertex(v, m_sparse, level));
-
       m_sparse++;
     }
-
-    exit(0);
   }
 
   // The orientation of the edge normal vector
@@ -496,24 +482,6 @@ int main() {
       primal_edge_length, dual_edge_length, tangent_orientation, geofac_rot, geofac_div)
       .run();
 
-  // dawn_generated::cxxnaiveico::icon<mylibInterface::mylibTag>(
-  //     mesh, k_size, vecT, div_vec, rot_vec, nabla2t1_vec, nabla2t2_vec, nabla2T_vec,
-  //     primal_edge_length, dual_edge_length, tangent_orientation, geofac_rot, geofac_div)
-  //     .run();
-
-  // for(auto it : mesh.faces()) {
-  //   div_vec(it, level) = 0.;
-  // }
-  // for(auto it : mesh.vertices()) {
-  //   rot_vec(it, level) = 0.;
-  // }
-  // for(auto it : mesh.edges()) {
-  //   nabla2t1_vec(it, level) = 0.;
-  // }
-  // for(auto it : mesh.edges()) {
-  //   nabla2t2_vec(it, level) = 0.;
-  // }
-
   if(dbg_out) {
     dumpField("laplICONmylib_div.txt", mesh, div_vec, level);
     dumpField("laplICONmylib_rot.txt", mesh, rot_vec, level);
@@ -527,62 +495,87 @@ int main() {
     dumpField("laplICONmylib_divD.txt", mesh, nabla2t2_vec, level, mylib::edge_color::diagonal);
   }
 
+  {
+    FILE* fp = fopen("laplRef.txt", "w+");
+    for(const auto& edgeIt : mesh.edges()) {
+      auto [x, y] = EdgeMidpoint(edgeIt);
+      auto [lx, ly] = analyticalLaplacian(x, y);
+      double laplRef = primal_normal_x(edgeIt, level) * lx + primal_normal_y(edgeIt, level) * ly;
+      fprintf(fp, "%f %f %f\n", x, y, laplRef);
+    }
+    fclose(fp);
+  }
+
+  {
+    double Linf = 0;
+    double L1 = 0;
+    double L2 = 0;
+    for(const auto& cellIt : mesh.faces()) {
+      auto [x, y] = CellCircumcenter(cellIt);
+      double divRef = analyticalDivergence(x, y);
+      double divSol = div_vec(cellIt, level);
+      double diff = divRef - divSol;
+      Linf = fmax(Linf, fabs(diff));
+      L1 += fabs(diff);
+      L2 += diff * diff;
+    }
+    L1 /= mesh.faces().size();
+    L2 = sqrt(L2) / sqrt(mesh.faces().size());
+    // printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+  }
+
+  {
+    double Linf = 0;
+    double L1 = 0;
+    double L2 = 0;
+    int innerNodes = 0;
+    for(const auto& nodeIt : mesh.vertices()) {
+      double x = nodeIt.x();
+      double y = nodeIt.y();
+      double rotRef = analyticalCurl(x, y);
+      double rotSol = rot_vec(nodeIt, level);
+      double diff = rotRef - rotSol;
+      if(!std::isfinite(diff)) {
+        continue;
+      }
+      innerNodes++;
+      Linf = fmax(Linf, fabs(diff));
+      L1 += fabs(diff);
+      L2 += diff * diff;
+    }
+    L1 /= innerNodes;
+    L2 = sqrt(L2) / sqrt(innerNodes);
+    // printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+  }
+
+  {
+    double Linf = 0;
+    double L1 = 0;
+    double L2 = 0;
+    int innerEdges = 0;
+    for(const auto& edgeIt : mesh.edges()) {
+      auto [x, y] = EdgeMidpoint(edgeIt);
+      auto [lx, ly] = analyticalLaplacian(x, y);
+      double laplRef = primal_normal_x(edgeIt, level) * lx + primal_normal_y(edgeIt, level) * ly;
+      double laplSol = nabla2N_vec(edgeIt, level);
+      double diff = laplRef - laplSol;
+      if(!std::isfinite(diff)) {
+        continue;
+      }
+      innerEdges++;
+      Linf = fmax(Linf, fabs(diff));
+      L1 += fabs(diff);
+      L2 += diff * diff;
+    }
+    L1 /= innerEdges;
+    L2 = sqrt(L2) / sqrt(innerEdges);
+    printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+  }
+
   //===------------------------------------------------------------------------------------------===//
   // dumping a hopefully nice colorful laplacian
   //===------------------------------------------------------------------------------------------===//
-  {
-    auto solve2x2 = [](double a1, double b1, double a2, double b2, double c1,
-                       double c2) -> std::tuple<double, double> {
-      double nominator = (a1 * b2 - b1 * a2);
-      double x = (c1 * b2 - b1 * c2) / nominator;
-      double y = (a1 * c2 - c1 * a2) / nominator;
-      return {x, y};
-    };
-
-    {
-      FILE* fp = fopen("laplICONmylib_rotAvg.txt", "w+");
-      FILE* fpRef = fopen("laplICONmylib_rotAvgRef.txt", "w+");
-      for(const auto& edgeIt : mesh.edges()) {
-        double avg = 0.;
-        for(const auto& nodeIt : edgeIt.get().vertices()) {
-          avg += rot_vec(*nodeIt, level);
-        }
-        avg /= 2.;
-        auto [x, y] = EdgeMidpoint(edgeIt);
-        fprintf(fp, "%f %f %f\n", x, y, avg);
-
-        double nx = primal_normal_x(edgeIt, level);
-        double ny = primal_normal_y(edgeIt, level);
-
-        auto [cx, cy] = curl(x, y);
-        fprintf(fpRef, "%f %f %f\n", x, y, nx * cx + ny * cy);
-      }
-      fclose(fp);
-      fclose(fpRef);
-    }
-
-    // dumpField("laplICONmylib_out.txt", mesh, nabla2_vec, level);
-    {
-      FILE* fp = fopen("laplICONmylib_out.txt", "w+");
-      FILE* fpRef = fopen("laplICONmylib_ref.txt", "w+");
-      for(const auto& edgeIt : mesh.edges()) {
-        double nx = primal_normal_x(edgeIt, level);
-        double ny = primal_normal_y(edgeIt, level);
-        double tx = dual_normal_x(edgeIt, level);
-        double ty = dual_normal_y(edgeIt, level);
-        double vn = nabla2N_vec(edgeIt, level);
-        double un = nabla2T_vec(edgeIt, level);
-        auto [x, y] = EdgeMidpoint(edgeIt);
-        auto [u, v] = solve2x2(nx, tx, ny, ty, vn, un);
-        fprintf(fp, "%f %f %f %f %f %f\n", x, y, u, v, vn, un);
-        auto [usol, vsol] = vectorLaplacian(x, y);
-        double nsol = nx * usol + ny * vsol;
-        fprintf(fpRef, "%f %f %f %f %f\n", x, y, usol, vsol, nsol);
-      }
-      fclose(fp);
-      fclose(fpRef);
-    }
-  }
+  dumpField("laplICONmylib_out.txt", mesh, nabla2N_vec, level);
 }
 
 void dumpMesh(const mylib::Grid& m, const std::string& fname) {
