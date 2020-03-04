@@ -102,6 +102,35 @@ void debugDump(const atlas::Mesh& mesh, const std::string prefix) {
     fclose(fp);
   }
 }
+
+void debugDump(const atlas::Mesh& mesh, const std::string prefix, const AtlasToCartesian& wrapper) {
+  const atlas::mesh::HybridElements::Connectivity& node_connectivity =
+      mesh.cells().node_connectivity();
+
+  {
+    char buf[256];
+    sprintf(buf, "%sT.txt", prefix.c_str());
+    FILE* fp = fopen(buf, "w+");
+    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+      int nodeIdx0 = node_connectivity(cellIdx, 0) + 1;
+      int nodeIdx1 = node_connectivity(cellIdx, 1) + 1;
+      int nodeIdx2 = node_connectivity(cellIdx, 2) + 1;
+      fprintf(fp, "%d %d %d\n", nodeIdx0, nodeIdx1, nodeIdx2);
+    }
+    fclose(fp);
+  }
+
+  {
+    char buf[256];
+    sprintf(buf, "%sP.txt", prefix.c_str());
+    FILE* fp = fopen(buf, "w+");
+    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+      auto [x, y] = wrapper.nodeLocation(nodeIdx);
+      fprintf(fp, "%f %f \n", x, y);
+    }
+    fclose(fp);
+  }
+}
 } // namespace
 
 int main(int argc, char const* argv[]) {
@@ -125,7 +154,6 @@ int main(int argc, char const* argv[]) {
     atlas::mesh::actions::build_edges(mesh, atlas::util::Config("pole_edges", false));
     atlas::mesh::actions::build_node_to_edge_connectivity(mesh);
     atlas::mesh::actions::build_element_to_edge_connectivity(mesh);
-    debugDump(mesh, "atlasMesh");
   } else {
     mesh = AtlasMeshFromNetCDFComplete("testCaseMesh.nc").value();
     {
@@ -142,6 +170,7 @@ int main(int argc, char const* argv[]) {
   }
 
   AtlasToCartesian wrapper(mesh);
+  debugDump(mesh, "atlasMesh");
 
   if(dbg_out) {
     dumpMesh(mesh, wrapper, "laplICONatlas_mesh.txt");
@@ -179,6 +208,13 @@ int main(int argc, char const* argv[]) {
   atlas::Field divVecSol_F{"divVecSol", atlas::array::DataType::real64(),
                            atlas::array::make_shape(mesh.cells().size(), 1)};
   atlasInterface::Field<double> divVecSol = atlas::array::make_view<double, 2>(divVecSol_F);
+
+  //===------------------------------------------------------------------------------------------===//
+  // control field holding the analytical solution for the curl
+  //===------------------------------------------------------------------------------------------===//
+  atlas::Field rotVecSol_F{"divVecSol", atlas::array::DataType::real64(),
+                           atlas::array::make_shape(mesh.nodes().size(), 1)};
+  atlasInterface::Field<double> rotVecSol = atlas::array::make_view<double, 2>(rotVecSol_F);
 
   //===------------------------------------------------------------------------------------------===//
   // output field (field containing the computed laplacian)
@@ -316,8 +352,8 @@ int main(int argc, char const* argv[]) {
     dual_edge_length(edgeIdx, level) = wrapper.dualEdgeLength(mesh, edgeIdx);
     tangent_orientation(edgeIdx, level) = wrapper.tangentOrientation(mesh, edgeIdx);
     auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
-    primal_normal_x(edgeIdx, level) = nx * tangent_orientation(edgeIdx, level);
-    primal_normal_y(edgeIdx, level) = ny * tangent_orientation(edgeIdx, level);
+    primal_normal_x(edgeIdx, level) = nx;
+    primal_normal_y(edgeIdx, level) = ny;
     // The primal normal, dual normal
     // forms a left-handed coordinate system
     dual_normal_x(edgeIdx, level) = ny;
@@ -340,14 +376,17 @@ int main(int argc, char const* argv[]) {
             0.5 * sqrt(15. / (2 * M_PI)) * cos(x) * cos(y) * sin(y)};
   };
 
-  // auto analyticalDivergence = [](double x, double y) {
-  //   return 1. / (2 * sqrt(2 * M_PI)) *
-  //          (sqrt(105) * sin(2 * x) * cos(y) * cos(y) * sin(y) + sqrt(15.) * cos(x) * cos(2 * y));
-  // };
-
   auto analyticalDivergence = [](double x, double y) {
     return -0.5 * (sqrt(105. / (2 * M_PI))) * sin(2 * x) * cos(y) * cos(y) * sin(y) +
            0.5 * sqrt(15. / (2 * M_PI)) * cos(x) * (cos(y) * cos(y) - sin(y) * sin(y));
+  };
+
+  auto analyticalCurl = [](double x, double y) {
+    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
+    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
+    double dudy = c1 * cos(2 * x) * cos(y) * (cos(y) * cos(y) - 2 * sin(y) * sin(y));
+    double dvdx = -c2 * cos(y) * sin(x) * sin(y);
+    return dvdx - dudy;
   };
 
   // init zero and test function
@@ -367,6 +406,11 @@ int main(int argc, char const* argv[]) {
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     auto [xm, ym] = wrapper.cellMidpoint(mesh, cellIdx);
     divVecSol(cellIdx, level) = analyticalDivergence(xm, ym);
+  }
+
+  for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+    auto [xm, ym] = wrapper.nodeLocation(nodeIdx);
+    rotVecSol(nodeIdx, level) = analyticalCurl(xm, ym);
   }
 
   dumpEdgeField("laplICONatlas_divEdgeAnalytical.txt", mesh, wrapper, divVecSolEdge, level);
@@ -396,73 +440,63 @@ int main(int argc, char const* argv[]) {
   // tangent unit vector of the connecting edge.
   // -1 otherwise
 
-  auto nodeNeighboursOfNode = [](atlas::Mesh const& m, int const& idx) {
-    const auto& conn_nodes_to_edge = m.nodes().edge_connectivity();
-    auto neighs = std::vector<std::tuple<int, int>>{};
-    for(int ne = 0; ne < conn_nodes_to_edge.cols(idx); ++ne) {
-      int nbh_edge_idx = conn_nodes_to_edge(idx, ne);
-      const auto& conn_edge_to_nodes = m.edges().node_connectivity();
-      for(int nn = 0; nn < conn_edge_to_nodes.cols(nbh_edge_idx); ++nn) {
-        int nbhNode = conn_edge_to_nodes(idx, nn);
-        if(nbhNode != idx) {
-          neighs.emplace_back(std::tuple<int, int>(nbh_edge_idx, nbhNode));
-        }
-      }
-    }
-    return neighs;
-  };
-
+  FILE* fpDbgGeofacRot = fopen("dbgGeofacRot.txt", "w+");
   for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
-    const atlas::mesh::Nodes::Connectivity& nodeEdgeConnectivity = mesh.nodes().edge_connectivity();
-    const atlas::mesh::HybridElements::Connectivity& edgeNodeConnectivity =
-        mesh.edges().node_connectivity();
+    const auto& nodeEdgeConnectivity = mesh.nodes().edge_connectivity();
+    const auto& edgeNodeConnectivity = mesh.edges().node_connectivity();
 
     const int missingVal = nodeEdgeConnectivity.missing_value();
     int numNbh = nodeEdgeConnectivity.cols(nodeIdx);
 
     // arbitrary val at boundary
-    if(numNbh != 6) {
-      for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
-        edge_orientation_vertex(nodeIdx, nbhIdx, level) = -1;
-      }
+    bool anyMissing = false;
+    for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
+      anyMissing |= nodeEdgeConnectivity(nodeIdx, nbhIdx) == missingVal;
     }
-
-    auto nbh = nodeNeighboursOfNode(mesh, nodeIdx);
-    auto [cx, cy] = wrapper.nodeLocation(nodeIdx);
-
-    // arbitrary val at boundary
-    if(nbh.size() != 6) {
+    if(numNbh != 6 || anyMissing) {
       for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
         edge_orientation_vertex(nodeIdx, nbhIdx, level) = -1;
       }
+      continue;
     }
 
     for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
-      int edgeIdx = std::get<0>(nbh[nbhIdx]);
-      int farNodeIdx = std::get<1>(nbh[nbhIdx]);
+      int edgeIdx = nodeEdgeConnectivity(nodeIdx, nbhIdx);
 
-      int nodeIdxLo = edgeNodeConnectivity(edgeIdx, 0);
-      int nodeIdxHi = edgeNodeConnectivity(edgeIdx, 1);
+      int n0 = edgeNodeConnectivity(edgeIdx, 0);
+      int n1 = edgeNodeConnectivity(edgeIdx, 1);
 
-      auto [xLo, yLo] = wrapper.nodeLocation(nodeIdxLo);
-      auto [xHi, yHi] = wrapper.nodeLocation(nodeIdxHi);
+      int centerIdx = (n0 == nodeIdx) ? n0 : n1;
+      int farIdx = (n0 == nodeIdx) ? n1 : n0;
 
-      auto [farX, farY] = wrapper.nodeLocation(farNodeIdx);
+      auto [xLo, yLo] = wrapper.nodeLocation(centerIdx);
+      auto [xHi, yHi] = wrapper.nodeLocation(farIdx);
 
-      Vector edgeVec{xHi - xLo, yHi - yLo};
-      // its not quite clear how to implement this properly in Atlas
-      //        nodes have no node neighbors on an atlas grid
-      //        Vector dualNrm{cx - farX, cy - farY}; <- leads to oscillations in rot field
-      Vector dualNrm{dual_normal_x(edgeIdx, level), dual_normal_y(edgeIdx, level)};
-      edge_orientation_vertex(nodeIdx, nbhIdx, level) = sgn(dot(edgeVec, dualNrm));
+      Vector edge = {xHi - xLo, yHi - yLo};
+      Vector dualNormal = {dual_normal_x(edgeIdx, level), dual_normal_y(edgeIdx, level)};
+
+      double dbg = dot(edge, dualNormal);
+      int systemSign = sgn(dot(edge, dualNormal)); // geometrical factor "corrects" normal such that
+                                                   // the resulting system is left handed
+      edge_orientation_vertex(nodeIdx, nbhIdx, level) = systemSign;
+
+      if(nodeIdx % 12 == 0) {
+        auto [xm, ym] = wrapper.edgeMidpoint(mesh, edgeIdx);
+        fprintf(fpDbgGeofacRot, "%f %f %f %f %f %f\n", xm, ym,
+                systemSign * primal_normal_x(edgeIdx, level),
+                systemSign * primal_normal_y(edgeIdx, level), primal_normal_x(edgeIdx, level),
+                primal_normal_y(edgeIdx, level));
+      }
     }
   }
+  fclose(fpDbgGeofacRot);
 
   // The orientation of the edge normal vector
   // (the variable primal normal in the edges ta-
   // ble) for the cell according to Gauss formula.
   // It is equal to +1 if the normal to the edge
   // is outwards from the cell, otherwise is -1.
+  FILE* fpDbgGeofacDiv = fopen("dbgGeofacDiv.txt", "w+");
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     const atlas::mesh::HybridElements::Connectivity& cellEdgeConnectivity =
         mesh.cells().edge_connectivity();
@@ -472,17 +506,27 @@ int main(int argc, char const* argv[]) {
     int numNbh = cellEdgeConnectivity.cols(cellIdx);
     assert(numNbh == edgesPerCell);
 
+    bool print = cellIdx % 7 == 0;
+
     for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
       int edgeIdx = cellEdgeConnectivity(cellIdx, nbhIdx);
       auto [emX, emY] = wrapper.edgeMidpoint(mesh, edgeIdx);
       Vector toOutsdie{emX - xm, emY - ym};
       Vector primal = {primal_normal_x(edgeIdx, level), primal_normal_y(edgeIdx, level)};
       edge_orientation_cell(cellIdx, nbhIdx, level) = sgn(dot(toOutsdie, primal));
+      auto [xm, ym] = wrapper.edgeMidpoint(mesh, edgeIdx);
+      if(print) {
+        fprintf(fpDbgGeofacDiv, "%f %f %f %f %f %f\n", xm, ym,
+                edge_orientation_cell(cellIdx, nbhIdx, level) * primal_normal_x(edgeIdx, level),
+                edge_orientation_cell(cellIdx, nbhIdx, level) * primal_normal_y(edgeIdx, level),
+                primal_normal_x(edgeIdx, level), primal_normal_y(edgeIdx, level));
+      }
     }
     // explanation: the vector cellMidpoint -> edgeMidpoint is guaranteed to point outside. The
     // dot product checks if the edge normal has the same orientation. edgeMidpoint is arbitrary,
     // any point on e would work just as well
   }
+  fclose(fpDbgGeofacDiv);
 
   // init sparse quantities for div and rot
   for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
@@ -536,26 +580,30 @@ int main(int argc, char const* argv[]) {
       primal_edge_length, dual_edge_length, tangent_orientation, geofac_rot, geofac_div)
       .run();
 
-  // checking if averaging cell neighbors to edge improves L_inf norm shows that this is not the
-  // case
-  //
-  // {
-  //   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-  //     const auto& conn = mesh.edges().cell_connectivity();
-  //     double avg = 0.;
-  //     int nnbh = 0;
-  //     for(int nbhIdx = 0; nbhIdx < conn.cols(edgeIdx); nbhIdx++) {
-  //       int cellIdx = conn(edgeIdx, nbhIdx);
-  //       if(cellIdx == conn.missing_value()) {
-  //         continue;
-  //       }
-  //       avg += div_vec(cellIdx, level);
-  //       nnbh++;
-  //     }
-  //     assert(nnbh > 0);
-  //     divVecAvgEdge(edgeIdx, level) = avg / nnbh;
-  //   }
-  // }
+  {
+    FILE* fp = fopen("rotRef.txt", "w+");
+    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+      auto [x, y] = wrapper.nodeLocation(nodeIdx);
+      fprintf(fp, "%f %f %f\n", x, y, analyticalCurl(x, y));
+    }
+    fclose(fp);
+  }
+
+  {
+    FILE* fp = fopen("rotRefCellAvg.txt", "w+");
+    const auto& conn = mesh.cells().node_connectivity();
+    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+      int n0 = conn(cellIdx, 0);
+      int n1 = conn(cellIdx, 1);
+      int n2 = conn(cellIdx, 2);
+      double c0 = rotVecSol(n0, level);
+      double c1 = rotVecSol(n1, level);
+      double c2 = rotVecSol(n2, level);
+      double cellAvg = 1. / 3. * (c0 + c1 + c2);
+      fprintf(fp, "%f\n", cellAvg);
+    }
+    fclose(fp);
+  }
 
   if(dbg_out) {
     dumpEdgeField("laplICONatlas_rotH.txt", mesh, wrapper, nabla2t1_vec, level,
@@ -590,38 +638,42 @@ int main(int argc, char const* argv[]) {
     double L2 = 0;
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       double diff = div_vec(cellIdx, level) - divVecSol(cellIdx, level);
-      if(diff > 10.) { // check outliers
-        continue;
-      }
       Linf = fmax(Linf, fabs(diff));
       L1 += fabs(diff);
       L2 += diff * diff;
     }
     L1 /= mesh.cells().size();
     L2 = sqrt(L2) / sqrt(mesh.cells().size());
-    printf("errors divergence: Linf: %e, L1 %e, L2 %e\n", Linf, L1, L2);
-    printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+    // printf("errors divergence: Linf: %e, L1 %e, L2 %e\n", Linf, L1, L2);
+    // printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
   }
 
-  // {
-  //   double Linf = 0;
-  //   double L1 = 0;
-  //   double L2 = 0;
-  //   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-  //     double diff = divVecAvgEdge(edgeIdx, level) - divVecSolEdge(edgeIdx, level);
-  //     if(diff > 10.) { // check outliers
-  //       continue;
-  //     }
-  //     Linf = fmax(Linf, fabs(diff));
-  //     L1 += fabs(diff);
-  //     L2 += diff * diff;
-  //     // printf("%f\n", diff);
-  //   }
-  //   L1 /= mesh.cells().size();
-  //   L2 = sqrt(L2) / sqrt(mesh.cells().size());
-  //   // printf("errors divergence: Linf: %e, L1 %e, L2 %e\n", Linf, L1, L2);
-  //   printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
-  // }
+  {
+    auto isBoundary = [mesh](int nodeIdx) {
+      const auto& conn = mesh.nodes().edge_connectivity();
+      return (conn.cols(nodeIdx) != 6);
+    };
+    double Linf = 0;
+    double L1 = 0;
+    double L2 = 0;
+    int numInnerNodes = 0;
+    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+      if(isBoundary(nodeIdx)) {
+        continue;
+      }
+      double sol = rot_vec(nodeIdx, level);
+      double ref = rotVecSol(nodeIdx, level);
+      double diff = sol - ref;
+      Linf = fmax(Linf, fabs(diff));
+      L1 += fabs(diff);
+      L2 += diff * diff;
+      numInnerNodes++;
+    }
+    L1 /= numInnerNodes;
+    L2 = sqrt(L2) / sqrt(numInnerNodes);
+    // printf("errors curl: Linf: %e, L1 %e, L2 %e\n", Linf, L1, L2);
+    printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+  }
 
   return 0;
 }

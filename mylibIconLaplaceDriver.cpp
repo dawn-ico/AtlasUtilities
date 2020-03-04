@@ -209,13 +209,13 @@ int main() {
 
   mylib::Grid mesh = MylibMeshRect(w);
 
+  mesh.scale(M_PI / 180.); // rescale to radians
+
   if(dbg_out) {
     dumpMesh(mesh, "laplICONmylib_mesh.txt");
     dumpDualMesh(mesh, "laplICONmylib_dualMesh.txt");
     debugDumpMesh(mesh, "mylibMesh");
   }
-
-  mesh.scale(M_PI / 180.); // rescale to radians
 
   const int edgesPerVertex = 6;
   const int edgesPerCell = 3;
@@ -408,13 +408,26 @@ int main() {
   // -1 otherwise
   for(const auto& v : mesh.vertices()) {
     int m_sparse = 0;
+
+    if(v.edges().size() != 6) {
+      continue;
+    }
+
     for(const auto& e : v.edges()) {
       mylib::Vertex testVec =
           mylib::Vertex(v.vertex(m_sparse).x() - v.x(), v.vertex(m_sparse).y() - v.y(), -1);
       mylib::Vertex dual = mylib::Vertex(dual_normal_x(*e, level), dual_normal_y(*e, level), -1);
       edge_orientation_vertex(v, m_sparse, level) = sgn(dot(testVec, dual));
+
+      auto [xm, ym] = EdgeMidpoint(*e);
+      printf("%f %f %f %f\n", xm, ym,
+             primal_normal_x(*e, level) * edge_orientation_vertex(v, m_sparse, level),
+             primal_normal_y(*e, level) * edge_orientation_vertex(v, m_sparse, level));
+
       m_sparse++;
     }
+
+    exit(0);
   }
 
   // The orientation of the edge normal vector
