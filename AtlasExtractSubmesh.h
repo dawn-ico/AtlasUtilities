@@ -18,6 +18,9 @@
 #include <atlas/mesh/Mesh.h>
 
 // This module offers facilities to extract a submesh from a Atlas mesh
+//
+// NOTES: Minimal means that only the minimal set of of neighbors lists are adapted (i.e. only
+// cellToNode). Complete adapts all neighbor lists
 
 atlas::Mesh AtlasExtractSubMeshMinimal(const atlas::Mesh& mesh, std::pair<int, int> rangeCells);
 atlas::Mesh AtlasExtractSubMeshComplete(const atlas::Mesh& mesh, std::pair<int, int> rangeCells);

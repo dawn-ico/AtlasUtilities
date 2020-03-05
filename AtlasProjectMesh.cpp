@@ -265,7 +265,7 @@ std::optional<atlas::Mesh> AtlasProjectMesh(const atlas::Mesh& parentMesh, int s
       parentMesh,
       std::pair<int, int>{startFace * cellPerIcoFace, (startFace + numFaces) * cellPerIcoFace});
 
-  const bool dbgOut = true;
+  const bool dbgOut = false;
 
   if(dbgOut) {
     debugDump(subMesh, "netcdfMesh");

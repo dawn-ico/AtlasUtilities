@@ -25,8 +25,13 @@
 using Point = std::tuple<double, double>;
 using Vector = std::tuple<double, double>;
 enum class Orientation { Horizontal = 0, Diagonal = 1, Vertical = 2 };
-// quick class that maps a structured Atlas mesh to cartesian coordinates in [0,1]
-//  can probably be optimized by using the information implied by the Atlas numbering schemes
+
+// wrapper around an atlas mesh, forces a cartesian interpretation of the mesh.
+// function names should be more or less self explanatory
+//
+// CAUTION: some of the functions quietly assume a triangle mesh and will fail in horrible ways if
+// anything else is passed
+
 class AtlasToCartesian {
 private:
   std::vector<Point> nodeToCart;
