@@ -54,22 +54,6 @@ std::tuple<double, double> EdgeMidpoint(const mylib::Edge& e) {
   return {0.5 * (x0 + x1), 0.5 * (y0 + y1)};
 }
 
-std::tuple<double, double> PrimalNormal(const mylib::Edge& e) {
-  double l = EdgeLength(e);
-  double x0 = e.vertex(0).x();
-  double y0 = e.vertex(0).y();
-  double x1 = e.vertex(1).x();
-  double y1 = e.vertex(1).y();
-  return {-(y1 - y0) / l, (x1 - x0) / l};
-}
-
-std::tuple<double, double> CellMidPoint(const mylib::Face& c) {
-  auto v0 = c.vertex(0);
-  auto v1 = c.vertex(1);
-  auto v2 = c.vertex(2);
-  return {1. / 3. * (v0.x() + v1.x() + v2.x()), 1. / 3. * (v0.y() + v1.y() + v2.y())};
-}
-
 std::tuple<double, double> CellCircumcenter(const mylib::Face& c) {
   double Ax = c.vertex(0).x();
   double Ay = c.vertex(0).y();
@@ -86,6 +70,26 @@ std::tuple<double, double> CellCircumcenter(const mylib::Face& c) {
               ((Ax * Ax + Ay * Ay) * (Cx - Bx) + (Bx * Bx + By * By) * (Ax - Cx) +
                (Cx * Cx + Cy * Cy) * (Bx - Ax));
   return {Ux, Uy};
+}
+
+std::tuple<double, double> PrimalNormal(const mylib::Edge& e) {
+  if(e.faces().size() != 2) {
+    return {0., 0.};
+  }
+
+  auto [x0, y0] = CellCircumcenter(e.face(0));
+  auto [x1, y1] = CellCircumcenter(e.face(1));
+  double dx = x1 - x0;
+  double dy = y1 - y0;
+  double l = sqrt(dx * dx + dy * dy);
+  return {dx / l, dy / l};
+}
+
+std::tuple<double, double> CellMidPoint(const mylib::Face& c) {
+  auto v0 = c.vertex(0);
+  auto v1 = c.vertex(1);
+  auto v2 = c.vertex(2);
+  return {1. / 3. * (v0.x() + v1.x() + v2.x()), 1. / 3. * (v0.y() + v1.y() + v2.y())};
 }
 
 double TriangleArea(const mylib::Vertex& v0, const mylib::Vertex& v1, const mylib::Vertex& v2) {
@@ -329,6 +333,7 @@ int main(int argc, char const* argv[]) {
     dual_normal_y(e, level) = -nx;
   }
   if(dbg_out) {
+    dumpField("laplICONmylib_tangentOrientation.txt", mesh, tangent_orientation, level);
     dumpField("laplICONmylib_EdgeLength.txt", mesh, primal_edge_length, level);
     dumpField("laplICONmylib_dualEdgeLength.txt", mesh, dual_edge_length, level);
     dumpField("laplICONmylib_nrm.txt", mesh, primal_normal_x, primal_normal_y, level);
@@ -486,6 +491,9 @@ int main(int argc, char const* argv[]) {
     dumpField("laplICONmylib_div.txt", mesh, div_vec, level);
     dumpField("laplICONmylib_rot.txt", mesh, rot_vec, level);
 
+    dumpField("laplICONmylib_nabla2t1.txt", mesh, nabla2t1_vec, level);
+    dumpField("laplICONmylib_nabla2t2.txt", mesh, nabla2t2_vec, level);
+
     dumpField("laplICONmylib_rotH.txt", mesh, nabla2t1_vec, level, mylib::edge_color::horizontal);
     dumpField("laplICONmylib_rotV.txt", mesh, nabla2t1_vec, level, mylib::edge_color::vertical);
     dumpField("laplICONmylib_rotD.txt", mesh, nabla2t1_vec, level, mylib::edge_color::diagonal);
@@ -510,7 +518,16 @@ int main(int argc, char const* argv[]) {
     double Linf = 0;
     double L1 = 0;
     double L2 = 0;
+    auto isBoundaryCell = [](const mylib::Face& f) {
+      return f.edge(0).faces().size() != 2 || f.edge(1).faces().size() != 2 ||
+             f.edge(2).faces().size() != 2;
+    };
+    int innerCells = 0;
     for(const auto& cellIt : mesh.faces()) {
+      if(isBoundaryCell(cellIt)) {
+        continue;
+      }
+      innerCells++;
       auto [x, y] = CellCircumcenter(cellIt);
       double divRef = analyticalDivergence(x, y);
       double divSol = div_vec(cellIt, level);
@@ -519,9 +536,9 @@ int main(int argc, char const* argv[]) {
       L1 += fabs(diff);
       L2 += diff * diff;
     }
-    L1 /= mesh.faces().size();
-    L2 = sqrt(L2) / sqrt(mesh.faces().size());
-    // printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+    L1 /= innerCells;
+    L2 = sqrt(L2) / sqrt(innerCells);
+    printf("div: %e %e %e %e\n", 180. / w, Linf, L1, L2);
   }
 
   {
@@ -545,7 +562,7 @@ int main(int argc, char const* argv[]) {
     }
     L1 /= innerNodes;
     L2 = sqrt(L2) / sqrt(innerNodes);
-    // printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+    printf("rot: %e %e %e %e\n", 180. / w, Linf, L1, L2);
   }
 
   {
@@ -569,8 +586,10 @@ int main(int argc, char const* argv[]) {
     }
     L1 /= innerEdges;
     L2 = sqrt(L2) / sqrt(innerEdges);
-    printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+    printf("out: %e %e %e %e\n", 180. / w, Linf, L1, L2);
   }
+
+  printf("-----\n");
 
   //===------------------------------------------------------------------------------------------===//
   // dumping a hopefully nice colorful laplacian
@@ -648,7 +667,7 @@ void dumpField(const std::string& fname, const mylib::Grid& mesh,
       continue;
     }
     auto [x, y] = EdgeMidpoint(e);
-    fprintf(fp, "%f %f %f\n", x, y, field(e, level));
+    fprintf(fp, "%f %f %f\n", x, y, std::isfinite(field(e, level)) ? field(e, level) : 0.);
   }
   fclose(fp);
 }

@@ -21,6 +21,7 @@
 //===------------------------------------------------------------------------------------------===//
 
 #include <cmath>
+#include <cstdio>
 #include <fenv.h>
 #include <vector>
 
@@ -66,6 +67,9 @@ void dumpCellField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
                    atlasInterface::Field<double>& field, int level);
 void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
                    atlasInterface::Field<double>& field, int level,
+                   std::optional<Orientation> color = std::nullopt);
+void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
+                   atlasInterface::Field<double>& field, int level, std::vector<int> edgeList,
                    std::optional<Orientation> color = std::nullopt);
 void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
                    atlasInterface::Field<double>& field_x, atlasInterface::Field<double>& field_y,
@@ -157,8 +161,6 @@ int main(int argc, char const* argv[]) {
   } else {
     mesh = AtlasMeshFromNetCDFComplete("testCaseMesh.nc").value();
     {
-      // auto radToLat = [](double rad) { return rad / (0.5 * M_PI) * 90; };
-      // auto radToLon = [](double rad) { return rad / (M_PI)*180; };
       auto lonlat = atlas::array::make_view<double, 2>(mesh.nodes().lonlat());
       auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
       for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
@@ -170,7 +172,8 @@ int main(int argc, char const* argv[]) {
   }
 
   AtlasToCartesian wrapper(mesh);
-  debugDump(mesh, "atlasMesh");
+
+  debugDump(mesh, "atlasMesh", wrapper);
 
   if(dbg_out) {
     dumpMesh(mesh, wrapper, "laplICONatlas_mesh.txt");
@@ -179,6 +182,39 @@ int main(int argc, char const* argv[]) {
 
   const int edgesPerVertex = 6;
   const int edgesPerCell = 3;
+
+  {
+    FILE* dbgEdgeCellNbh = fopen("edgeNbhCell.txt", "w+");
+    FILE* dbgEdgeNodeNbh = fopen("edgeNbhNode.txt", "w+");
+    const auto& connToCell = mesh.edges().cell_connectivity();
+    const auto& connToNode = mesh.edges().node_connectivity();
+    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+      if(edgeIdx % 5 == 0) {
+
+        if(connToCell(edgeIdx, 0) == connToCell.missing_value() ||
+           connToCell(edgeIdx, 1) == connToCell.missing_value()) {
+          continue;
+        }
+
+        int n0 = connToNode(edgeIdx, 0);
+        int n1 = connToNode(edgeIdx, 1);
+
+        int c0 = connToCell(edgeIdx, 0);
+        int c1 = connToCell(edgeIdx, 1);
+
+        auto [xm, ym] = wrapper.edgeMidpoint(mesh, edgeIdx);
+        auto [xn0, yn0] = wrapper.nodeLocation(n0);
+        auto [xn1, yn1] = wrapper.nodeLocation(n1);
+        auto [xc0, yc0] = wrapper.cellCircumcenter(mesh, c0);
+        auto [xc1, yc1] = wrapper.cellCircumcenter(mesh, c1);
+
+        fprintf(dbgEdgeNodeNbh, "%f %f %f %f %f %f\n", xm, ym, xn0, yn0, xn1, yn1);
+        fprintf(dbgEdgeCellNbh, "%f %f %f %f %f %f\n", xm, ym, xc0, yc0, xc1, yc1);
+      }
+    }
+    fclose(dbgEdgeCellNbh);
+    fclose(dbgEdgeNodeNbh);
+  }
 
   // current atlas mesh is not compatible with parallel computing
   // atlas::functionspace::CellColumns fs_cells(mesh, atlas::option::levels(k_size));
@@ -361,6 +397,8 @@ int main(int argc, char const* argv[]) {
   }
 
   if(dbg_out) {
+    dumpEdgeField("laplICONatlas_tangentOrientation.txt", mesh, wrapper, tangent_orientation,
+                  level);
     dumpEdgeField("laplICONatlas_EdgeLength.txt", mesh, wrapper, primal_edge_length, level);
     dumpEdgeField("laplICONatlas_dualEdgeLength.txt", mesh, wrapper, dual_edge_length, level);
     dumpEdgeField("laplICONatlas_nrm.txt", mesh, wrapper, primal_normal_x, primal_normal_y, level);
@@ -617,12 +655,17 @@ int main(int argc, char const* argv[]) {
   }
 
   if(dbg_out) {
+    dumpEdgeField("laplICONatlas_nabla2t1.txt", mesh, wrapper, nabla2t1_vec, level,
+                  wrapper.innerEdges(mesh));
+    dumpEdgeField("laplICONatlas_nabla2t2.txt", mesh, wrapper, nabla2t1_vec, level,
+                  wrapper.innerEdges(mesh));
+
     dumpEdgeField("laplICONatlas_rotH.txt", mesh, wrapper, nabla2t1_vec, level,
-                  Orientation::Horizontal);
+                  wrapper.innerEdges(mesh), Orientation::Horizontal);
     dumpEdgeField("laplICONatlas_rotV.txt", mesh, wrapper, nabla2t1_vec, level,
-                  Orientation::Vertical);
+                  wrapper.innerEdges(mesh), Orientation::Vertical);
     dumpEdgeField("laplICONatlas_rotD.txt", mesh, wrapper, nabla2t1_vec, level,
-                  Orientation::Diagonal);
+                  wrapper.innerEdges(mesh), Orientation::Diagonal);
 
     dumpEdgeField("laplICONatlas_divH.txt", mesh, wrapper, nabla2t2_vec, level,
                   Orientation::Horizontal);
@@ -636,9 +679,9 @@ int main(int argc, char const* argv[]) {
   // dumping a hopefully nice colorful divergence, curl & laplacian
   //===------------------------------------------------------------------------------------------===//
   dumpCellField("laplICONatlas_div.txt", mesh, wrapper, div_vec, level);
-  // dumpEdgeField("laplICONatlas_divE.txt", mesh, wrapper, divVecAvgEdge, level);
   dumpNodeField("laplICONatlas_rot.txt", mesh, wrapper, rot_vec, level);
-  dumpEdgeField("laplICONatlas_out.txt", mesh, wrapper, nabla2_vec, level);
+  dumpEdgeField("laplICONatlas_out.txt", mesh, wrapper, nabla2_vec, level,
+                wrapper.innerEdges(mesh));
 
   //===------------------------------------------------------------------------------------------===//
   // measuring errors
@@ -656,7 +699,7 @@ int main(int argc, char const* argv[]) {
     L1 /= mesh.cells().size();
     L2 = sqrt(L2) / sqrt(mesh.cells().size());
     // printf("errors divergence: Linf: %e, L1 %e, L2 %e\n", Linf, L1, L2);
-    // printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+    printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
   }
 
   {
@@ -685,6 +728,32 @@ int main(int argc, char const* argv[]) {
     // printf("errors curl: Linf: %e, L1 %e, L2 %e\n", Linf, L1, L2);
     printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
   }
+
+  {
+    std::vector<int> innerEdges = wrapper.innerEdges(mesh);
+    double Linf = 0;
+    double L1 = 0;
+    double L2 = 0;
+    int numInnerNodes = 0;
+    for(int innerEdge : innerEdges) {
+      auto [x, y] = wrapper.edgeMidpoint(mesh, innerEdge);
+      double sol = nabla2_vec(innerEdge, level);
+      auto [lx, ly] = analyticalLaplacian(x, y);
+      double laplRef =
+          primal_normal_x(innerEdge, level) * lx + primal_normal_y(innerEdge, level) * ly;
+      double diff = sol - laplRef;
+      Linf = fmax(Linf, fabs(diff));
+      L1 += fabs(diff);
+      L2 += diff * diff;
+      numInnerNodes++;
+    }
+    L1 /= numInnerNodes;
+    L2 = sqrt(L2) / sqrt(numInnerNodes);
+    // printf("errors curl: Linf: %e, L1 %e, L2 %e\n", Linf, L1, L2);
+    printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+  }
+
+  printf("----\n");
 
   return 0;
 }
@@ -766,6 +835,21 @@ void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
 }
 
 void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
+                   atlasInterface::Field<double>& field, int level, std::vector<int> edgeList,
+                   std::optional<Orientation> color) {
+  FILE* fp = fopen(fname.c_str(), "w+");
+  for(int edgeIdx : edgeList) {
+    if(color.has_value() && wrapper.edgeOrientation(mesh, edgeIdx) != color.value()) {
+      continue;
+    }
+    auto [xm, ym] = wrapper.edgeMidpoint(mesh, edgeIdx);
+    fprintf(fp, "%f %f %f\n", xm, ym,
+            std::isfinite(field(edgeIdx, level)) ? field(edgeIdx, level) : 0.);
+  }
+  fclose(fp);
+}
+
+void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
                    atlasInterface::Field<double>& field_x, atlasInterface::Field<double>& field_y,
                    int level, std::optional<Orientation> color) {
   FILE* fp = fopen(fname.c_str(), "w+");
@@ -825,3 +909,36 @@ void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
 //       nbh_idx++;
 //     }
 //   }
+
+// {
+//   FILE* dbgEdgeCellNbh = fopen("edgeNbhCell.txt", "w+");
+//   FILE* dbgEdgeNodeNbh = fopen("edgeNbhNode.txt", "w+");
+//   const auto& connToCell = mesh.edges().cell_connectivity();
+//   const auto& connToNode = mesh.edges().node_connectivity();
+//   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+//     if(edgeIdx % 5 == 0) {
+
+//       if(connToCell(edgeIdx, 0) == connToCell.missing_value() ||
+//          connToCell(edgeIdx, 1) == connToCell.missing_value()) {
+//         continue;
+//       }
+
+//       int n0 = connToNode(edgeIdx, 0);
+//       int n1 = connToNode(edgeIdx, 1);
+
+//       int c0 = connToCell(edgeIdx, 0);
+//       int c1 = connToCell(edgeIdx, 1);
+
+//       auto [xm, ym] = wrapper.edgeMidpoint(mesh, edgeIdx);
+//       auto [xn0, yn0] = wrapper.nodeLocation(n0);
+//       auto [xn1, yn1] = wrapper.nodeLocation(n1);
+//       auto [xc0, yc0] = wrapper.cellCircumcenter(mesh, c0);
+//       auto [xc1, yc1] = wrapper.cellCircumcenter(mesh, c1);
+
+//       fprintf(dbgEdgeNodeNbh, "%f %f %f %f %f %f\n", xm, ym, xn0, yn0, xn1, yn1);
+//       fprintf(dbgEdgeCellNbh, "%f %f %f %f %f %f\n", xm, ym, xc0, yc0, xc1, yc1);
+//     }
+//   }
+//   fclose(dbgEdgeCellNbh);
+//   fclose(dbgEdgeNodeNbh);
+// }

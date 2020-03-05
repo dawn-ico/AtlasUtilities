@@ -45,6 +45,8 @@ public:
   std::tuple<Point, Point> cartesianEdge(const atlas::Mesh& mesh, int edgeIdx) const;
   Point edgeMidpoint(const atlas::Mesh& mesh, int edgeIdx) const;
 
+  std::vector<int> innerEdges(const atlas::Mesh& mesh) const;
+
   Point nodeLocation(int nodeIdx) const { return nodeToCart[nodeIdx]; }
   double dualCellArea(const atlas::Mesh& mesh, int nodeIdx) const;
 

@@ -271,9 +271,28 @@ double AtlasToCartesian::tangentOrientation(const atlas::Mesh& mesh, int edgeIdx
 }
 
 Vector AtlasToCartesian::primalNormal(const atlas::Mesh& mesh, int edgeIdx) const {
-  auto [v1, v2] = cartesianEdge(mesh, edgeIdx);
-  double l = length(v1, v2);
-  return {-(std::get<1>(v2) - std::get<1>(v1)) / l, (std::get<0>(v2) - std::get<0>(v1)) / l};
+  const atlas::mesh::HybridElements::Connectivity& edgeCellConnectivity =
+      mesh.edges().cell_connectivity();
+  const int missingValCell = edgeCellConnectivity.missing_value();
+
+  int numNbhCell = edgeCellConnectivity.cols(edgeIdx);
+  assert(numNbhCell == 2);
+
+  int nbhLoCell = edgeCellConnectivity(edgeIdx, 0);
+  int nbhHiCell = edgeCellConnectivity(edgeIdx, 1);
+
+  if(nbhLoCell == missingValCell || nbhHiCell == missingValCell) {
+    return {0., 0.};
+  }
+
+  Point pLoCell = cellCircumcenter(mesh, nbhLoCell);
+  Point pHiCell = cellCircumcenter(mesh, nbhHiCell);
+
+  double c2c1x = std::get<0>(pHiCell) - std::get<0>(pLoCell);
+  double c2c1y = std::get<1>(pHiCell) - std::get<1>(pLoCell);
+
+  double l = sqrt(c2c1x * c2c1x + c2c1y * c2c1y);
+  return {c2c1x / l, c2c1y / l};
 }
 
 Point AtlasToCartesian::edgeMidpoint(const atlas::Mesh& mesh, int edgeIdx) const {
@@ -281,6 +300,37 @@ Point AtlasToCartesian::edgeMidpoint(const atlas::Mesh& mesh, int edgeIdx) const
   auto [fromX, fromY] = from;
   auto [toX, toY] = to;
   return {0.5 * (fromX + toX), 0.5 * (fromY + toY)};
+}
+
+std::vector<int> AtlasToCartesian::innerEdges(const atlas::Mesh& mesh) const {
+  std::set<int> boundaryEdges;
+  const auto& conn = mesh.nodes().edge_connectivity();
+  auto anyMissing = [&](int nodeIdx) {
+    int missingValue = conn.missing_value();
+    for(int nbhIdx = 0; nbhIdx < conn.cols(nodeIdx); nbhIdx++) {
+      if(conn(nodeIdx, nbhIdx) == missingValue) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+    if(conn.cols(nodeIdx) != 6 || anyMissing(nodeIdx)) {
+      for(int nbhIdx = 0; nbhIdx < conn.cols(nodeIdx); nbhIdx++) {
+        boundaryEdges.insert(conn(nodeIdx, nbhIdx));
+      }
+    }
+  }
+
+  std::vector<int> innerEdges;
+  for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+    if(!boundaryEdges.count(edgeIdx)) {
+      innerEdges.push_back(edgeIdx);
+    }
+  }
+
+  return innerEdges;
 }
 
 AtlasToCartesian::AtlasToCartesian(const atlas::Mesh& mesh, double scale, bool skewTrafo)
