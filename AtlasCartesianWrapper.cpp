@@ -17,6 +17,7 @@
 #include "AtlasCartesianWrapper.h"
 #include <atlas/util/CoordinateEnums.h>
 
+namespace {
 static double length(const Point& p1, const Point& p2) {
   double dx = std::get<0>(p1) - std::get<0>(p2);
   double dy = std::get<1>(p1) - std::get<1>(p2);
@@ -27,6 +28,14 @@ template <typename T>
 static int sgn(T val) {
   return (T(0) < val) - (val < T(0));
 }
+
+double TriangleArea(const Point& v0, const Point& v1, const Point& v2) {
+  return fabs((std::get<0>(v0) * (std::get<1>(v1) - std::get<1>(v2)) +
+               std::get<0>(v1) * (std::get<1>(v2) - std::get<1>(v0)) +
+               std::get<0>(v2) * (std::get<1>(v0) - std::get<1>(v1))) *
+              0.5);
+}
+} // namespace
 
 Point AtlasToCartesian::cellMidpoint(const atlas::Mesh& mesh, int cellIdx) const {
   const atlas::mesh::HybridElements::Connectivity& cellNodeConnectivity =
@@ -46,13 +55,6 @@ Point AtlasToCartesian::cellMidpoint(const atlas::Mesh& mesh, int cellIdx) const
   midX /= numNbh;
   midY /= numNbh;
   return {midX, midY};
-}
-
-double TriangleArea(const Point& v0, const Point& v1, const Point& v2) {
-  return fabs((std::get<0>(v0) * (std::get<1>(v1) - std::get<1>(v2)) +
-               std::get<0>(v1) * (std::get<1>(v2) - std::get<1>(v0)) +
-               std::get<0>(v2) * (std::get<1>(v0) - std::get<1>(v1))) *
-              0.5);
 }
 
 double AtlasToCartesian::cellArea(const atlas::Mesh& mesh, int cellIdx) const {
@@ -322,7 +324,6 @@ std::vector<int> AtlasToCartesian::innerEdges(const atlas::Mesh& mesh) const {
       }
     }
   }
-
   std::vector<int> innerEdges;
   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
     if(!boundaryEdges.count(edgeIdx)) {
@@ -331,6 +332,50 @@ std::vector<int> AtlasToCartesian::innerEdges(const atlas::Mesh& mesh) const {
   }
 
   return innerEdges;
+}
+
+std::vector<int> AtlasToCartesian::innerNodes(const atlas::Mesh& mesh) const {
+  const auto& conn = mesh.nodes().edge_connectivity();
+  auto anyMissing = [&](int nodeIdx) {
+    int missingValue = conn.missing_value();
+    for(int nbhIdx = 0; nbhIdx < conn.cols(nodeIdx); nbhIdx++) {
+      if(conn(nodeIdx, nbhIdx) == missingValue) {
+        return true;
+      }
+    }
+    return false;
+  };
+  std::vector<int> innerNodes;
+  for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+    if(anyMissing(nodeIdx) || conn.cols(nodeIdx) != 6) {
+      continue;
+    }
+    innerNodes.push_back(nodeIdx);
+  }
+  return innerNodes;
+}
+
+std::vector<int> AtlasToCartesian::innerCells(const atlas::Mesh& mesh) const {
+  const auto& cellToEdge = mesh.cells().edge_connectivity();
+  const auto& edgeToCell = mesh.edges().cell_connectivity();
+  std::vector<int> innerCells;
+  auto isBoundaryEdge = [&edgeToCell](int edgeIdx) {
+    if(edgeToCell.cols(edgeIdx) != 2) {
+      return true;
+    }
+    return edgeToCell(edgeIdx, 0) == edgeToCell.missing_value() ||
+           edgeToCell(edgeIdx, 1) == edgeToCell.missing_value();
+  };
+  for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+    int e0 = cellToEdge(cellIdx, 0);
+    int e1 = cellToEdge(cellIdx, 1);
+    int e2 = cellToEdge(cellIdx, 2);
+    if(isBoundaryEdge(e0) || isBoundaryEdge(e1) || isBoundaryEdge(e2)) {
+      continue;
+    }
+    innerCells.push_back(cellIdx);
+  }
+  return innerCells;
 }
 
 AtlasToCartesian::AtlasToCartesian(const atlas::Mesh& mesh, double scale, bool skewTrafo)

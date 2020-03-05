@@ -46,6 +46,8 @@ public:
   Point edgeMidpoint(const atlas::Mesh& mesh, int edgeIdx) const;
 
   std::vector<int> innerEdges(const atlas::Mesh& mesh) const;
+  std::vector<int> innerNodes(const atlas::Mesh& mesh) const;
+  std::vector<int> innerCells(const atlas::Mesh& mesh) const;
 
   Point nodeLocation(int nodeIdx) const { return nodeToCart[nodeIdx]; }
   double dualCellArea(const atlas::Mesh& mesh, int nodeIdx) const;
