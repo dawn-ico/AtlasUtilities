@@ -12,8 +12,11 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
-// This file implements the nabla2vec function from mo_math_laplace.f90 in ICON, using the Atlas,
-// dawn, and the atlas interface therein. Some notes:
+// This file implements the nabla2vec function from mo_math_laplace.f90 (see also
+// mo_math_divrot.f90) in ICON, using the Atlas, dawn, and the atlas interface therein. Some notes:
+//
+//  - names have been kept close to the FORTRAN code, but the "_Location" suffixes have been removed
+//    because of the strong typing in C++ and inconsistent application in the FORTRAN source
 //
 //  - the main function in this file either accepts a vertical resolution nx, or reads a netcdf mesh
 //    from disk. in the latter case, the netcdf file needs to contain a structures equilateral

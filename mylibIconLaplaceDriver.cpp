@@ -12,29 +12,350 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
-#include "mylib.hpp"
-#include "mylib_interface.hpp"
+// This file implements the nabla2vec function from mo_math_laplace.f90 (see also
+// mo_math_divrot.f90) in ICON, using out toylibarry, dawn, and the toy library interface therein.
+// Some notes:
+//
+//  - MOST CODE COMMENTS HAVE BEEN OMITTED, SEE atlasIconLaplaceDriver.cpp for EXPLANATIONS WHAT
+//    HAPPENS IN THE CODE
+//
+//  - names have been kept close to the FORTRAN code, but the "_Location" suffixes have been removed
+//    because of the strong typing in C++ and inconsistent application in the FORTRAN source
+//
+//  - the main function in this file either accepts a vertical resolution nx, or reads a netcdf mesh
+//    from disk. in the latter case, the netcdf file needs to contain a structures equilateral
+//    triangle mesh
+//
+//  - this version makes no attempt to compute anything meaningful at the boundaries. values at the
+//    boundaries are skipped in outputs, meaningless default values are assigned to various
+//    geometrical factors etc.
+
 #include <assert.h>
 #include <fstream>
 #include <optional>
+
+#include "mylib.hpp"
+#include "mylib_interface.hpp"
 
 #include "generated_iconLaplace.hpp"
 
 #include "GenerateRectMylibMesh.h"
 
-// re-implemenation of the ICON nabla2_vec operator.
-//    see mo_math_divrot.f90 and mo_math_laplace.f90
-// names have been kept close to the FORTRAN code, but the "_Location" suffixes have been removed
-// because of the strong typing in C++ and inconsistent application in the FORTRAN source
-
-//===------------------------------------------------------------------------------------------===//
-// geometric helper functions
-//===------------------------------------------------------------------------------------------===//
-
+namespace {
 template <typename T>
 int sgn(T val) {
   return (T(0) < val) - (val < T(0));
 }
+
+//===------------------------------------------------------------------------------------------===//
+// geometric helper functions
+//===------------------------------------------------------------------------------------------===//
+std::tuple<double, double> EdgeMidpoint(const mylib::Edge& e);
+std::tuple<double, double> CellCircumcenter(const mylib::Face& c);
+std::tuple<double, double> PrimalNormal(const mylib::Edge& e);
+std::tuple<double, double> CellMidPoint(const mylib::Face& c);
+
+double EdgeLength(const mylib::Edge& e);
+double TriangleArea(const mylib::Vertex& v0, const mylib::Vertex& v1, const mylib::Vertex& v2);
+double CellArea(const mylib::Face& c);
+double DualCellArea(const mylib::Vertex& center);
+double DualEdgeLength(const mylib::Edge& e);
+double TangentOrientation(const mylib::Edge& e);
+
+std::vector<mylib::Face> innerCells(const mylib::Grid& m);
+std::vector<mylib::Edge> innerEdges(const mylib::Grid& m);
+std::vector<mylib::Vertex> innerNodes(const mylib::Grid& m);
+
+//===------------------------------------------------------------------------------------------===//
+// output (debugging)
+//===------------------------------------------------------------------------------------------===//
+void dumpMesh(const mylib::Grid& m, const std::string& fname);
+void dumpDualMesh(const mylib::Grid& m, const std::string& fname);
+
+void dumpSparseData(const mylib::Grid& mesh, const mylib::SparseVertexData<double>& sparseData,
+                    int level, int edgesPerVertex, const std::string& fname);
+void dumpSparseData(const mylib::Grid& mesh, const mylib::SparseFaceData<double>& sparseData,
+                    int level, int edgesPerCell, const std::string& fname);
+
+void dumpField(const std::string& fname, const mylib::Grid& mesh,
+               const mylib::EdgeData<double>& field, int level,
+               std::optional<mylib::edge_color> color = std::nullopt);
+void dumpField(const std::string& fname, const mylib::Grid& mesh,
+               const mylib::EdgeData<double>& field_x, const mylib::EdgeData<double>& field_y,
+               int level, std::optional<mylib::edge_color> color = std::nullopt);
+void dumpField(const std::string& fname, const mylib::Grid& mesh,
+               const mylib::FaceData<double>& field, int level,
+               std::optional<mylib::face_color> color = std::nullopt);
+void dumpField(const std::string& fname, const mylib::Grid& mesh,
+               const mylib::VertexData<double>& field, int level);
+void debugDumpMesh(const mylib::Grid& mesh, const std::string prefix);
+
+//===------------------------------------------------------------------------------------------===//
+// error reporting
+//===------------------------------------------------------------------------------------------===//
+template <typename DataT, typename ElemT>
+std::tuple<double, double, double> MeasureError(DataT ref, DataT sol,
+                                                std::vector<ElemT> innerElements, int level);
+
+} // namespace
+
+int main(int argc, char const* argv[]) {
+  if(argc != 2) {
+    std::cout << "intended use is\n" << argv[0] << " ny" << std::endl;
+    return -1;
+  }
+  int w = atoi(argv[1]);
+
+  int k_size = 1;
+  const int level = 0;
+  double lDomain = M_PI;
+
+  const bool dbg_out = true;
+
+  mylib::Grid mesh = MylibMeshRect(w);
+
+  mesh.scale(M_PI / 180.); // rescale to radians
+
+  if(dbg_out) {
+    debugDumpMesh(mesh, "laplICONmylib_Mesh");
+  }
+
+  const int edgesPerVertex = 6;
+  const int edgesPerCell = 3;
+
+  //===------------------------------------------------------------------------------------------===//
+  // input field (field we want to take the laplacian of)
+  //===------------------------------------------------------------------------------------------===//
+  mylib::EdgeData<double> vec(mesh, k_size);
+
+  //===------------------------------------------------------------------------------------------===//
+  // control fields (containing analytical solutions)
+  //===------------------------------------------------------------------------------------------===//
+  mylib::FaceData<double> divVecSol(mesh, k_size);
+  mylib::VertexData<double> rotVecSol(mesh, k_size);
+  mylib::EdgeData<double> lapVecSol(mesh, k_size);
+
+  //===------------------------------------------------------------------------------------------===//
+  // output field (field containing the computed laplacian)
+  //===------------------------------------------------------------------------------------------===//
+  mylib::EdgeData<double> nabla2_vec(mesh, k_size);
+  // term 1 and term 2 of nabla for debugging
+  mylib::EdgeData<double> nabla2t1_vec(mesh, k_size);
+  mylib::EdgeData<double> nabla2t2_vec(mesh, k_size);
+
+  //===------------------------------------------------------------------------------------------===//
+  // intermediary fields (curl/rot and div of vec_e)
+  //===------------------------------------------------------------------------------------------===//
+  mylib::VertexData<double> rot_vec(mesh, k_size);
+  mylib::FaceData<double> div_vec(mesh, k_size);
+
+  //===------------------------------------------------------------------------------------------===//
+  // sparse dimensions for computing intermediary fields
+  //===------------------------------------------------------------------------------------------===//
+  mylib::SparseVertexData<double> geofac_rot(mesh, k_size, edgesPerVertex);
+  mylib::SparseVertexData<double> edge_orientation_vertex(mesh, k_size, edgesPerVertex);
+
+  mylib::SparseFaceData<double> geofac_div(mesh, k_size, edgesPerCell);
+  mylib::SparseFaceData<double> edge_orientation_cell(mesh, k_size, edgesPerCell);
+
+  //===------------------------------------------------------------------------------------------===//
+  // fields containing geometric information
+  //===------------------------------------------------------------------------------------------===//
+  mylib::EdgeData<double> tangent_orientation(mesh, k_size);
+  mylib::EdgeData<double> primal_edge_length(mesh, k_size);
+  mylib::EdgeData<double> dual_edge_length(mesh, k_size);
+  mylib::EdgeData<double> dual_normal_x(mesh, k_size);
+  mylib::EdgeData<double> dual_normal_y(mesh, k_size);
+  mylib::EdgeData<double> primal_normal_x(mesh, k_size);
+  mylib::EdgeData<double> primal_normal_y(mesh, k_size);
+
+  mylib::FaceData<double> cell_area(mesh, k_size);
+  mylib::VertexData<double> dual_cell_area(mesh, k_size);
+
+  //===------------------------------------------------------------------------------------------===//
+  // initialize geometrical info on edges
+  //===------------------------------------------------------------------------------------------===//
+  for(auto const& e : mesh.edges()) {
+    primal_edge_length(e, level) = EdgeLength(e);
+    dual_edge_length(e, level) = DualEdgeLength(e);
+    tangent_orientation(e, level) = TangentOrientation(e);
+    auto [xm, ym] = EdgeMidpoint(e);
+    auto [nx, ny] = PrimalNormal(e);
+    primal_normal_x(e, level) = nx;
+    primal_normal_y(e, level) = ny;
+    // The primal normal, dual normal
+    // forms a left-handed coordinate system
+    dual_normal_x(e, level) = ny;
+    dual_normal_y(e, level) = -nx;
+  }
+  if(dbg_out) {
+    dumpField("laplICONmylib_tangentOrientation.txt", mesh, tangent_orientation, level);
+    dumpField("laplICONmylib_EdgeLength.txt", mesh, primal_edge_length, level);
+    dumpField("laplICONmylib_dualEdgeLength.txt", mesh, dual_edge_length, level);
+    dumpField("laplICONmylib_nrm.txt", mesh, primal_normal_x, primal_normal_y, level);
+    dumpField("laplICONmylib_dnrm.txt", mesh, dual_normal_x, dual_normal_y, level);
+  }
+
+  //===------------------------------------------------------------------------------------------===//
+  // initialize geometrical info on cells
+  //===------------------------------------------------------------------------------------------===//
+  for(const auto& c : mesh.faces()) {
+    cell_area(c, level) = CellArea(c);
+  }
+  //===------------------------------------------------------------------------------------------===//
+  // initialize geometrical info on vertices
+  //===------------------------------------------------------------------------------------------===//
+  for(const auto& v : mesh.vertices()) {
+    dual_cell_area(v, level) = DualCellArea(v);
+  }
+
+  if(dbg_out) {
+    dumpField("laplICONmylib_areaCell.txt", mesh, cell_area, level);
+    dumpField("laplICONmylib_areaCellDual.txt", mesh, dual_cell_area, level);
+  }
+
+  //===------------------------------------------------------------------------------------------===//
+  // analytical solutions
+  //===------------------------------------------------------------------------------------------===//
+  auto sphericalHarmonic = [](double x, double y) -> std::tuple<double, double> {
+    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
+    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
+    return {c1 * cos(2 * x) * cos(y) * cos(y) * sin(y), c2 * cos(x) * cos(y) * sin(y)};
+  };
+  auto analyticalDivergence = [](double x, double y) {
+    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
+    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
+    return -2 * c1 * sin(2 * x) * cos(y) * cos(y) * sin(y) +
+           c2 * cos(x) * (cos(y) * cos(y) - sin(y) * sin(y));
+  };
+  auto analyticalCurl = [](double x, double y) {
+    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
+    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
+    double dudy = c1 * cos(2 * x) * cos(y) * (cos(y) * cos(y) - 2 * sin(y) * sin(y));
+    double dvdx = -c2 * cos(y) * sin(x) * sin(y);
+    return dvdx - dudy;
+  };
+  auto analyticalLaplacian = [](double x, double y) -> std::tuple<double, double> {
+    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
+    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
+    return {-4 * c1 * cos(2 * x) * cos(y) * cos(y) * sin(y), -4 * c2 * cos(x) * sin(y) * cos(y)};
+  };
+  for(const auto& e : mesh.edges()) {
+    auto [px, py] = EdgeMidpoint(e);
+    auto [u, v] = sphericalHarmonic(px, py);
+    auto [lu, lv] = analyticalLaplacian(px, py);
+    vec(e.get(), level) = primal_normal_x(e, level) * u + primal_normal_y(e, level) * v;
+    lapVecSol(e.get(), level) = primal_normal_x(e, level) * lu + primal_normal_y(e, level) * lv;
+  }
+  for(const auto& v : mesh.vertices()) {
+    rotVecSol(v, level) = analyticalCurl(v.x(), v.y());
+  }
+  for(const auto& c : mesh.faces()) {
+    auto [cx, cy] = CellCircumcenter(c);
+    divVecSol(c, level) = analyticalDivergence(cx, cy);
+  }
+
+  //===------------------------------------------------------------------------------------------===//
+  // initialize geometrical factors (sparse dimensions)
+  //===------------------------------------------------------------------------------------------===//
+  auto dot = [](const mylib::Vertex& v1, const mylib::Vertex& v2) {
+    return v1.x() * v2.x() + v1.y() * v2.y();
+  };
+
+  for(const auto& v : mesh.vertices()) {
+    int m_sparse = 0;
+    if(v.edges().size() != 6) {
+      continue;
+    }
+    for(const auto& e : v.edges()) {
+      mylib::Vertex testVec =
+          mylib::Vertex(v.vertex(m_sparse).x() - v.x(), v.vertex(m_sparse).y() - v.y(), -1);
+      mylib::Vertex dual = mylib::Vertex(dual_normal_x(*e, level), dual_normal_y(*e, level), -1);
+      edge_orientation_vertex(v, m_sparse, level) = sgn(dot(testVec, dual));
+      m_sparse++;
+    }
+  }
+  for(const auto& c : mesh.faces()) {
+    int m_sparse = 0;
+    auto [xm, ym] = CellCircumcenter(c);
+    for(const auto& e : c.edges()) {
+      mylib::Vertex vOutside(e->vertex(0).x() - xm, e->vertex(0).y() - ym, -1);
+      edge_orientation_cell(c, m_sparse, level) =
+          sgn(dot(mylib::Vertex(e->vertex(0).x() - xm, e->vertex(0).y() - ym, -1),
+                  mylib::Vertex(primal_normal_x(*e, level), primal_normal_y(*e, level), -1)));
+      m_sparse++;
+    }
+  }
+
+  // init sparse quantities for div and rot
+  for(const auto& v : mesh.vertices()) {
+    int m_sparse = 0;
+    for(const auto& e : v.edges()) {
+      geofac_rot(v, m_sparse, level) = dual_edge_length(*e, level) *
+                                       edge_orientation_vertex(v, m_sparse, level) /
+                                       dual_cell_area(v, level);
+      m_sparse++;
+    }
+  }
+
+  for(const auto& c : mesh.faces()) {
+    int m_sparse = 0;
+    for(const auto& e : c.edges()) {
+      geofac_div(c, m_sparse, level) = primal_edge_length(*e, level) *
+                                       edge_orientation_cell(c, m_sparse, level) /
+                                       cell_area(c, level);
+      m_sparse++;
+    }
+  }
+
+  if(dbg_out) {
+    dumpSparseData(mesh, geofac_rot, level, edgesPerVertex,
+                   std::string("laplICONmylib_geofacRot.txt"));
+    dumpSparseData(mesh, geofac_div, level, edgesPerCell,
+                   std::string("laplICONmylib_geofacDiv.txt"));
+  }
+
+  //===------------------------------------------------------------------------------------------===//
+  // stencil call
+  //===------------------------------------------------------------------------------------------===//
+  dawn_generated::cxxnaiveico::icon<mylibInterface::mylibTag>(
+      mesh, k_size, vec, div_vec, rot_vec, nabla2t1_vec, nabla2t2_vec, nabla2_vec,
+      primal_edge_length, dual_edge_length, tangent_orientation, geofac_rot, geofac_div)
+      .run();
+
+  if(dbg_out) {
+    dumpField("laplICONmylib_nabla2t1.txt", mesh, nabla2t1_vec, level);
+    dumpField("laplICONmylib_nabla2t2.txt", mesh, nabla2t2_vec, level);
+  }
+
+  //===------------------------------------------------------------------------------------------===//
+  // report errors
+  //===------------------------------------------------------------------------------------------===//
+
+  {
+    auto [Linf, L1, L2] = MeasureError(div_vec, divVecSol, innerCells(mesh), level);
+    printf("[div] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
+  }
+  {
+    auto [Linf, L1, L2] = MeasureError(rot_vec, rotVecSol, innerNodes(mesh), level);
+    printf("[rot] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
+  }
+  {
+    auto [Linf, L1, L2] = MeasureError(nabla2_vec, lapVecSol, innerEdges(mesh), level);
+    printf("[lap] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
+  }
+
+  printf("-----\n");
+
+  //===------------------------------------------------------------------------------------------===//
+  // dumping a hopefully nice colorful divergence, curl and Laplacian
+  //===------------------------------------------------------------------------------------------===//
+  dumpField("laplICONmylib_div.txt", mesh, div_vec, level);
+  dumpField("laplICONmylib_rot.txt", mesh, rot_vec, level);
+  dumpField("laplICONmylib_out.txt", mesh, nabla2_vec, level);
+}
+
+namespace {
 
 double EdgeLength(const mylib::Edge& e) {
   double x0 = e.vertex(0).x();
@@ -133,10 +454,6 @@ double DualEdgeLength(const mylib::Edge& e) {
 }
 
 double TangentOrientation(const mylib::Edge& e) {
-  // ! =1 if vector product of vector from vertex1 to vertex 2 (v2-v1) by vector
-  // ! from cell c1 to cell c2 (c2-c1) goes outside the sphere
-  // ! =-1 if vector product ...       goes inside  the sphere
-
   if(e.faces().size() == 1) { // not sure about this on the boundaries. chose 1 arbitrarily
     return 1.;
   }
@@ -156,28 +473,40 @@ double TangentOrientation(const mylib::Edge& e) {
   return sgn(c2c1x * v2v1y - c2c1y * v2v1x);
 }
 
-//===------------------------------------------------------------------------------------------===//
-// output (debugging)
-//===------------------------------------------------------------------------------------------===//
-void dumpMesh(const mylib::Grid& m, const std::string& fname);
-void dumpDualMesh(const mylib::Grid& m, const std::string& fname);
-
-void dumpSparseData(const mylib::Grid& mesh, const mylib::SparseVertexData<double>& sparseData,
-                    int level, int edgesPerVertex, const std::string& fname);
-void dumpSparseData(const mylib::Grid& mesh, const mylib::SparseFaceData<double>& sparseData,
-                    int level, int edgesPerCell, const std::string& fname);
-
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::EdgeData<double>& field, int level,
-               std::optional<mylib::edge_color> color = std::nullopt);
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::EdgeData<double>& field_x, const mylib::EdgeData<double>& field_y,
-               int level, std::optional<mylib::edge_color> color = std::nullopt);
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::FaceData<double>& field, int level,
-               std::optional<mylib::face_color> color = std::nullopt);
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::VertexData<double>& field, int level);
+std::vector<mylib::Face> innerCells(const mylib::Grid& m) {
+  std::vector<mylib::Face> innerCells;
+  for(const auto f : m.faces()) {
+    bool hasBoundaryEdge = false;
+    for(const auto e : f.edges()) {
+      hasBoundaryEdge |= (e->faces().size() != 2);
+    }
+    if(hasBoundaryEdge) {
+      continue;
+    }
+    innerCells.push_back(f);
+  }
+  return innerCells;
+}
+std::vector<mylib::Edge> innerEdges(const mylib::Grid& m) {
+  std::vector<mylib::Edge> innerEdges;
+  for(const auto e : m.edges()) {
+    if(e.get().faces().size() != 2) {
+      continue;
+    }
+    innerEdges.push_back(e);
+  }
+  return innerEdges;
+}
+std::vector<mylib::Vertex> innerNodes(const mylib::Grid& m) {
+  std::vector<mylib::Vertex> innerVertices;
+  for(const auto v : m.vertices()) {
+    if(v.edges().size() != 6) {
+      continue;
+    }
+    innerVertices.push_back(v);
+  }
+  return innerVertices;
+}
 
 void debugDumpMesh(const mylib::Grid& mesh, const std::string prefix) {
   {
@@ -190,7 +519,6 @@ void debugDumpMesh(const mylib::Grid& mesh, const std::string prefix) {
     }
     fclose(fp);
   }
-
   {
     char buf[256];
     sprintf(buf, "%sP.txt", prefix.c_str());
@@ -200,401 +528,6 @@ void debugDumpMesh(const mylib::Grid& mesh, const std::string prefix) {
     }
     fclose(fp);
   }
-}
-
-int main(int argc, char const* argv[]) {
-  if(argc != 2) {
-    std::cout << "intended use is\n" << argv[0] << " ny" << std::endl;
-    return -1;
-  }
-  int w = atoi(argv[1]);
-
-  int k_size = 1;
-  const int level = 0;
-  double lDomain = M_PI;
-  // double lDomain = 10.;
-
-  const bool dbg_out = true;
-
-  mylib::Grid mesh = MylibMeshRect(w);
-
-  mesh.scale(M_PI / 180.); // rescale to radians
-
-  if(dbg_out) {
-    dumpMesh(mesh, "laplICONmylib_mesh.txt");
-    dumpDualMesh(mesh, "laplICONmylib_dualMesh.txt");
-    debugDumpMesh(mesh, "mylibMesh");
-  }
-
-  const int edgesPerVertex = 6;
-  const int edgesPerCell = 3;
-
-  //===------------------------------------------------------------------------------------------===//
-  // input field (field we want to take the laplacian of)
-  //===------------------------------------------------------------------------------------------===//
-  mylib::EdgeData<double> vecN(mesh, k_size);
-  mylib::EdgeData<double> vecT(mesh, k_size);
-  //    this is, confusingly, called vec_e, even though it is a scalar
-  //    _conceptually_, this can be regarded as a vector with implicit direction (presumably normal
-  //    to edge direction)
-
-  //===------------------------------------------------------------------------------------------===//
-  // output field (field containing the computed laplacian)
-  //===------------------------------------------------------------------------------------------===//
-  mylib::EdgeData<double> nabla2N_vec(mesh, k_size);
-  mylib::EdgeData<double> nabla2T_vec(mesh, k_size);
-  mylib::EdgeData<double> nabla2t1_vec(mesh, k_size); // term 1 and term 2 of nabla for debugging
-  mylib::EdgeData<double> nabla2t2_vec(mesh, k_size);
-  //    again, surprisingly enough, this is a scalar quantity even though the vector laplacian is a
-  //    laplacian.
-
-  //===------------------------------------------------------------------------------------------===//
-  // intermediary fields (curl/rot and div of vec_e)
-  //===------------------------------------------------------------------------------------------===//
-
-  // rotation (more commonly curl) of vec_e on vertices
-  //    I'm not entirely positive how one can take the curl of a scalar field (commonly a undefined
-  //    operation), however, since vec_e is _conceptually_ a vector this works out. somehow.
-  mylib::VertexData<double> rot_vec(mesh, k_size);
-
-  // divergence of vec_e on cells
-  //    Again, not entirely sure how one can measure the divergence of scalars, but again, vec_e is
-  //    _conceptually_ a vector, so...
-  mylib::FaceData<double> div_vec(mesh, k_size);
-
-  //===------------------------------------------------------------------------------------------===//
-  // sparse dimensions for computing intermediary fields
-  //===------------------------------------------------------------------------------------------===//
-
-  // needed for the computation of the curl/rotation. according to documentation this needs to be:
-  // ! the appropriate dual cell based verts%edge_orientation
-  // ! is required to obtain the correct value for the
-  // ! application of Stokes theorem (which requires the scalar
-  // ! product of the vector field with the tangent unit vectors
-  // ! going around dual cell jv COUNTERCLOKWISE;
-  // ! since the positive direction for the vec_e components is
-  // ! not necessarily the one yelding counterclockwise rotation
-  // ! around dual cell jv, a correction coefficient (equal to +-1)
-  // ! is necessary, given by g%verts%edge_orientation
-  mylib::SparseVertexData<double> geofac_rot(mesh, k_size, edgesPerVertex);
-  mylib::SparseVertexData<double> edge_orientation_vertex(mesh, k_size, edgesPerVertex);
-
-  // needed for the computation of the curl/rotation. according to documentation this needs to be:
-  //   ! ...the appropriate cell based edge_orientation is required to
-  //   ! obtain the correct value for the application of Gauss theorem
-  //   ! (which requires the scalar product of the vector field with the
-  //   ! OUTWARD pointing unit vector with respect to cell jc; since the
-  //   ! positive direction for the vector components is not necessarily
-  //   ! the outward pointing one with respect to cell jc, a correction
-  //   ! coefficient (equal to +-1) is necessary, given by
-  //   ! ptr_patch%grid%cells%edge_orientation)
-  mylib::SparseFaceData<double> geofac_div(mesh, k_size, edgesPerCell);
-  mylib::SparseFaceData<double> edge_orientation_cell(mesh, k_size, edgesPerCell);
-
-  //===------------------------------------------------------------------------------------------===//
-  // fields containing geometric information
-  //===------------------------------------------------------------------------------------------===//
-  mylib::EdgeData<double> tangent_orientation(mesh, k_size);
-  mylib::EdgeData<double> primal_edge_length(mesh, k_size);
-  mylib::EdgeData<double> dual_edge_length(mesh, k_size);
-  mylib::EdgeData<double> dual_normal_x(mesh, k_size);
-  mylib::EdgeData<double> dual_normal_y(mesh, k_size);
-  mylib::EdgeData<double> primal_normal_x(mesh, k_size);
-  mylib::EdgeData<double> primal_normal_y(mesh, k_size);
-
-  mylib::FaceData<double> cell_area(mesh, k_size);
-
-  mylib::VertexData<double> dual_cell_area(mesh, k_size);
-
-  //===------------------------------------------------------------------------------------------===//
-  // initialize fields
-  //===------------------------------------------------------------------------------------------===//
-
-  for(const auto& v : mesh.vertices()) {
-    rot_vec(v, level) = 0;
-  }
-
-  for(const auto& c : mesh.faces()) {
-    div_vec(c, level) = 0;
-  }
-
-  // init geometric info for edges
-  for(auto const& e : mesh.edges()) {
-    primal_edge_length(e, level) = EdgeLength(e);
-    dual_edge_length(e, level) = DualEdgeLength(e);
-    tangent_orientation(e, level) = TangentOrientation(e);
-    auto [xm, ym] = EdgeMidpoint(e);
-    auto [nx, ny] = PrimalNormal(e);
-    primal_normal_x(e, level) = nx;
-    primal_normal_y(e, level) = ny;
-    // The primal normal, dual normal
-    // forms a left-handed coordinate system
-    dual_normal_x(e, level) = ny;
-    dual_normal_y(e, level) = -nx;
-  }
-  if(dbg_out) {
-    dumpField("laplICONmylib_tangentOrientation.txt", mesh, tangent_orientation, level);
-    dumpField("laplICONmylib_EdgeLength.txt", mesh, primal_edge_length, level);
-    dumpField("laplICONmylib_dualEdgeLength.txt", mesh, dual_edge_length, level);
-    dumpField("laplICONmylib_nrm.txt", mesh, primal_normal_x, primal_normal_y, level);
-    dumpField("laplICONmylib_dnrm.txt", mesh, dual_normal_x, dual_normal_y, level);
-  }
-
-  auto sphericalHarmonic = [](double x, double y) -> std::tuple<double, double> {
-    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
-    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
-    return {c1 * cos(2 * x) * cos(y) * cos(y) * sin(y), c2 * cos(x) * cos(y) * sin(y)};
-  };
-  auto analyticalDivergence = [](double x, double y) {
-    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
-    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
-    return -2 * c1 * sin(2 * x) * cos(y) * cos(y) * sin(y) +
-           c2 * cos(x) * (cos(y) * cos(y) - sin(y) * sin(y));
-  };
-  auto analyticalCurl = [](double x, double y) {
-    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
-    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
-    double dudy = c1 * cos(2 * x) * cos(y) * (cos(y) * cos(y) - 2 * sin(y) * sin(y));
-    double dvdx = -c2 * cos(y) * sin(x) * sin(y);
-    return dvdx - dudy;
-  };
-  auto analyticalLaplacian = [](double x, double y) -> std::tuple<double, double> {
-    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
-    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
-    return {-4 * c1 * cos(2 * x) * cos(y) * cos(y) * sin(y), -4 * c2 * cos(x) * sin(y) * cos(y)};
-  };
-
-  // init zero and test function
-  FILE* fp = fopen("sphericalHarmonics.txt", "w+");
-  for(const auto& e : mesh.edges()) {
-    auto [px, py] = EdgeMidpoint(e);
-    auto [u, v] = sphericalHarmonic(px, py);
-    double normalWind = primal_normal_x(e, level) * u + primal_normal_y(e, level) * v;
-    double tangentialWind = dual_normal_x(e, level) * u + dual_normal_y(e, level) * v;
-    vecN(e.get(), level) = normalWind;
-    vecT(e.get(), level) = tangentialWind;
-    nabla2N_vec(e.get(), level) = 0;
-    fprintf(fp, "%f %f %f %f\n", px, py, u, v);
-  }
-  fclose(fp);
-
-  if(dbg_out) {
-    dumpField("laplICONmylib_in.txt", mesh, vecN, level);
-  }
-
-  // init geometric info for cells
-  for(const auto& c : mesh.faces()) {
-    cell_area(c, level) = CellArea(c);
-  }
-  // init geometric info for vertices
-  for(const auto& v : mesh.vertices()) {
-    dual_cell_area(v, level) = DualCellArea(v);
-  }
-
-  if(dbg_out) {
-    dumpField("laplICONmylib_areaCell.txt", mesh, cell_area, level);
-    dumpField("laplICONmylib_areaCellDual.txt", mesh, dual_cell_area, level);
-  }
-
-  // init edge orientations for vertices and cells
-  auto dot = [](const mylib::Vertex& v1, const mylib::Vertex& v2) {
-    return v1.x() * v2.x() + v1.y() * v2.y();
-  };
-
-  // +1 when the vector from this to the neigh-
-  // bor vertex has the same orientation as the
-  // tangent unit vector of the connecting edge.
-  // -1 otherwise
-  for(const auto& v : mesh.vertices()) {
-    int m_sparse = 0;
-
-    if(v.edges().size() != 6) {
-      continue;
-    }
-
-    for(const auto& e : v.edges()) {
-      mylib::Vertex testVec =
-          mylib::Vertex(v.vertex(m_sparse).x() - v.x(), v.vertex(m_sparse).y() - v.y(), -1);
-      mylib::Vertex dual = mylib::Vertex(dual_normal_x(*e, level), dual_normal_y(*e, level), -1);
-      edge_orientation_vertex(v, m_sparse, level) = sgn(dot(testVec, dual));
-      m_sparse++;
-    }
-  }
-
-  // The orientation of the edge normal vector
-  // (the variable primal normal in the edges ta-
-  // ble) for the cell according to Gauss formula.
-  // It is equal to +1 if the normal to the edge
-  // is outwards from the cell, otherwise is -1.
-  for(const auto& c : mesh.faces()) {
-    int m_sparse = 0;
-    auto [xm, ym] = CellCircumcenter(c);
-    for(const auto& e : c.edges()) {
-      mylib::Vertex vOutside(e->vertex(0).x() - xm, e->vertex(0).y() - ym, -1);
-      edge_orientation_cell(c, m_sparse, level) =
-          sgn(dot(mylib::Vertex(e->vertex(0).x() - xm, e->vertex(0).y() - ym, -1),
-                  mylib::Vertex(primal_normal_x(*e, level), primal_normal_y(*e, level), -1)));
-      m_sparse++;
-      // explanation: the vector cellModpoint -> e.vertex(0) is guaranteed to point outside. The dot
-      // product checks if the edge normal has the same orientation. e.vertex(0) is arbitrary,
-      // vertex(1), or any point on e would work just as well
-    }
-  }
-
-  // init sparse quantities for div and rot
-  for(const auto& v : mesh.vertices()) {
-    int m_sparse = 0;
-    for(const auto& e : v.edges()) {
-      geofac_rot(v, m_sparse, level) = dual_edge_length(*e, level) *
-                                       edge_orientation_vertex(v, m_sparse, level) /
-                                       dual_cell_area(v, level);
-
-      // ptr_int%geofac_rot(jv,je,jb) =                &
-      //    & ptr_patch%edges%dual_edge_length(ile,ibe) * &
-      //    & ptr_patch%verts%edge_orientation(jv,jb,je)/ &
-      //    & ptr_patch%verts%dual_area(jv,jb) * REAL(ifac,wp)
-      m_sparse++;
-    }
-  }
-
-  for(const auto& c : mesh.faces()) {
-    int m_sparse = 0;
-    for(const auto& e : c.edges()) {
-      geofac_div(c, m_sparse, level) = primal_edge_length(*e, level) *
-                                       edge_orientation_cell(c, m_sparse, level) /
-                                       cell_area(c, level);
-
-      //  ptr_int%geofac_div(jc,je,jb) = &
-      //    & ptr_patch%edges%primal_edge_length(ile,ibe) * &
-      //    & ptr_patch%cells%edge_orientation(jc,jb,je)  / &
-      //    & ptr_patch%cells%area(jc,jb)
-      m_sparse++;
-    }
-  }
-
-  if(dbg_out) {
-    dumpSparseData(mesh, geofac_rot, level, edgesPerVertex,
-                   std::string("laplICONmylib_geofacRot.txt"));
-    dumpSparseData(mesh, geofac_div, level, edgesPerCell,
-                   std::string("laplICONmylib_geofacDiv.txt"));
-  }
-
-  //===------------------------------------------------------------------------------------------===//
-  // stencil call (this replaces the computations in handrolled version)
-  //===------------------------------------------------------------------------------------------===//
-  dawn_generated::cxxnaiveico::icon<mylibInterface::mylibTag>(
-      mesh, k_size, vecN, div_vec, rot_vec, nabla2t1_vec, nabla2t2_vec, nabla2N_vec,
-      primal_edge_length, dual_edge_length, tangent_orientation, geofac_rot, geofac_div)
-      .run();
-
-  if(dbg_out) {
-    dumpField("laplICONmylib_div.txt", mesh, div_vec, level);
-    dumpField("laplICONmylib_rot.txt", mesh, rot_vec, level);
-
-    dumpField("laplICONmylib_nabla2t1.txt", mesh, nabla2t1_vec, level);
-    dumpField("laplICONmylib_nabla2t2.txt", mesh, nabla2t2_vec, level);
-
-    dumpField("laplICONmylib_rotH.txt", mesh, nabla2t1_vec, level, mylib::edge_color::horizontal);
-    dumpField("laplICONmylib_rotV.txt", mesh, nabla2t1_vec, level, mylib::edge_color::vertical);
-    dumpField("laplICONmylib_rotD.txt", mesh, nabla2t1_vec, level, mylib::edge_color::diagonal);
-
-    dumpField("laplICONmylib_divH.txt", mesh, nabla2t2_vec, level, mylib::edge_color::horizontal);
-    dumpField("laplICONmylib_divV.txt", mesh, nabla2t2_vec, level, mylib::edge_color::vertical);
-    dumpField("laplICONmylib_divD.txt", mesh, nabla2t2_vec, level, mylib::edge_color::diagonal);
-  }
-
-  {
-    FILE* fp = fopen("laplRef.txt", "w+");
-    for(const auto& edgeIt : mesh.edges()) {
-      auto [x, y] = EdgeMidpoint(edgeIt);
-      auto [lx, ly] = analyticalLaplacian(x, y);
-      double laplRef = primal_normal_x(edgeIt, level) * lx + primal_normal_y(edgeIt, level) * ly;
-      fprintf(fp, "%f %f %f\n", x, y, laplRef);
-    }
-    fclose(fp);
-  }
-
-  {
-    double Linf = 0;
-    double L1 = 0;
-    double L2 = 0;
-    auto isBoundaryCell = [](const mylib::Face& f) {
-      return f.edge(0).faces().size() != 2 || f.edge(1).faces().size() != 2 ||
-             f.edge(2).faces().size() != 2;
-    };
-    int innerCells = 0;
-    for(const auto& cellIt : mesh.faces()) {
-      if(isBoundaryCell(cellIt)) {
-        continue;
-      }
-      innerCells++;
-      auto [x, y] = CellCircumcenter(cellIt);
-      double divRef = analyticalDivergence(x, y);
-      double divSol = div_vec(cellIt, level);
-      double diff = divRef - divSol;
-      Linf = fmax(Linf, fabs(diff));
-      L1 += fabs(diff);
-      L2 += diff * diff;
-    }
-    L1 /= innerCells;
-    L2 = sqrt(L2) / sqrt(innerCells);
-    printf("div: %e %e %e %e\n", 180. / w, Linf, L1, L2);
-  }
-
-  {
-    double Linf = 0;
-    double L1 = 0;
-    double L2 = 0;
-    int innerNodes = 0;
-    for(const auto& nodeIt : mesh.vertices()) {
-      double x = nodeIt.x();
-      double y = nodeIt.y();
-      double rotRef = analyticalCurl(x, y);
-      double rotSol = rot_vec(nodeIt, level);
-      double diff = rotRef - rotSol;
-      if(!std::isfinite(diff)) {
-        continue;
-      }
-      innerNodes++;
-      Linf = fmax(Linf, fabs(diff));
-      L1 += fabs(diff);
-      L2 += diff * diff;
-    }
-    L1 /= innerNodes;
-    L2 = sqrt(L2) / sqrt(innerNodes);
-    printf("rot: %e %e %e %e\n", 180. / w, Linf, L1, L2);
-  }
-
-  {
-    double Linf = 0;
-    double L1 = 0;
-    double L2 = 0;
-    int innerEdges = 0;
-    for(const auto& edgeIt : mesh.edges()) {
-      auto [x, y] = EdgeMidpoint(edgeIt);
-      auto [lx, ly] = analyticalLaplacian(x, y);
-      double laplRef = primal_normal_x(edgeIt, level) * lx + primal_normal_y(edgeIt, level) * ly;
-      double laplSol = nabla2N_vec(edgeIt, level);
-      double diff = laplRef - laplSol;
-      if(!std::isfinite(diff)) {
-        continue;
-      }
-      innerEdges++;
-      Linf = fmax(Linf, fabs(diff));
-      L1 += fabs(diff);
-      L2 += diff * diff;
-    }
-    L1 /= innerEdges;
-    L2 = sqrt(L2) / sqrt(innerEdges);
-    printf("out: %e %e %e %e\n", 180. / w, Linf, L1, L2);
-  }
-
-  printf("-----\n");
-
-  //===------------------------------------------------------------------------------------------===//
-  // dumping a hopefully nice colorful laplacian
-  //===------------------------------------------------------------------------------------------===//
-  dumpField("laplICONmylib_out.txt", mesh, nabla2N_vec, level);
 }
 
 void dumpMesh(const mylib::Grid& m, const std::string& fname) {
@@ -709,16 +642,23 @@ void dumpField(const std::string& fname, const mylib::Grid& mesh,
   fclose(fp);
 }
 
-// FILE* fpin = fopen("laplICONmylib_in_recons.txt", "w+");
-// for(const auto& c : mesh.faces()) {
-//   double inx = primal_normal_x(c.edge(0), level) * vec(c.edge(0), level) +
-//                primal_normal_x(c.edge(1), level) * vec(c.edge(1), level) +
-//                primal_normal_x(c.edge(2), level) * vec(c.edge(2), level);
-//   double iny = primal_normal_y(c.edge(0), level) * vec(c.edge(0), level) +
-//                primal_normal_y(c.edge(1), level) * vec(c.edge(1), level) +
-//                primal_normal_y(c.edge(2), level) * vec(c.edge(2), level);
-//   auto [xm, ym] = CellCircumcenter(c);
-//   double l = sqrt(inx * inx + iny * iny);
-//   // assert(iny < 1e3 * std::numeric_limits<double>::epsilon());
-//   fprintf(fpin, "%f %f %f %f %f %f\n", xm, ym, inx, iny, inx / l, iny / l);
-// }
+template <typename DataT, typename ElemT>
+std::tuple<double, double, double> MeasureError(DataT ref, DataT sol,
+                                                std::vector<ElemT> innerElements, int level) {
+  double Linf = 0.;
+  double L1 = 0.;
+  double L2 = 0.;
+  for(const auto& elem : innerElements) {
+    double dif = ref(elem, level) - sol(elem, level);
+    if(!std::isfinite(dif)) {
+      continue;
+    }
+    Linf = fmax(fabs(dif), Linf);
+    L1 += fabs(dif);
+    L2 += dif * dif;
+  }
+  L1 /= innerElements.size();
+  L2 = sqrt(L2) / sqrt(innerElements.size());
+  return {Linf, L1, L2};
+}
+} // namespace
