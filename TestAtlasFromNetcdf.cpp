@@ -17,11 +17,12 @@
 #include <optional>
 #include <string>
 
+#include <atlas/array.h>
+#include <atlas/grid.h>
 #include <atlas/library/Library.h>
-#include <atlas/mesh/HybridElements.h>
-#include <atlas/mesh/Mesh.h>
-#include <atlas/mesh/Nodes.h>
+#include <atlas/mesh.h>
 #include <atlas/mesh/actions/BuildEdges.h>
+#include <atlas/meshgenerator.h>
 #include <atlas/output/Gmsh.h>
 #include <atlas/util/CoordinateEnums.h>
 

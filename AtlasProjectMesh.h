@@ -12,6 +12,8 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
+#pragma once
+
 #include <atlas/mesh/Mesh.h>
 #include <optional>
 #include <string>

@@ -4,17 +4,9 @@
 #include <numeric>
 #include <vector>
 
-#include <atlas/array/Array.h>
-#include <atlas/array/ArrayView.h>
-#include <atlas/array/IndexView.h>
-#include <atlas/library/Library.h>
-#include <atlas/library/config.h>
-#include <atlas/mesh/ElementType.h>
-#include <atlas/mesh/Elements.h>
-#include <atlas/mesh/HybridElements.h>
-#include <atlas/mesh/Nodes.h>
-#include <atlas/meshgenerator/detail/MeshGeneratorImpl.h>
-#include <atlas/output/Gmsh.h>
+#include <atlas/array.h>
+#include <atlas/grid.h>
+#include <atlas/meshgenerator.h>
 #include <atlas/util/CoordinateEnums.h>
 
 namespace {

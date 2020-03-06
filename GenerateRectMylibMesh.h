@@ -12,6 +12,8 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
+#pragma once
+
 #include "mylib.hpp"
 
 // Generate a equilateral structured triangle mesh using our toy library with nx = 2*ny

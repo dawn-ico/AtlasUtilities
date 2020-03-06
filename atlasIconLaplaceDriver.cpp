@@ -33,15 +33,12 @@
 #include <vector>
 
 // atlas functions
-#include "atlas/grid/Grid.h"
-#include "atlas/grid/Iterator.h"
-#include "atlas/grid/StructuredGrid.h"
-#include "atlas/grid/detail/grid/Structured.h"
-#include "atlas/library/Library.h"
-#include "atlas/library/config.h"
-#include "atlas/mesh/Mesh.h"
-#include "atlas/mesh/actions/BuildEdges.h"
-#include "atlas/meshgenerator.h"
+#include <atlas/array.h>
+#include <atlas/grid.h>
+#include <atlas/mesh.h>
+#include <atlas/mesh/actions/BuildEdges.h>
+// #include <atlas/mesh/actions/BuildEdges.h>
+#include <atlas/util/CoordinateEnums.h>
 
 // atlas interface for dawn generated code
 #include "atlas_interface.hpp"
@@ -118,7 +115,7 @@ int main(int argc, char const* argv[]) {
 
   // dump a whole bunch of debug output (meant to be visualized using Octave, but gnuplot and the
   // like will certainly work too)
-  const bool dbg_out = true;
+  const bool dbg_out = false;
   const bool readMeshFromDisk = false;
 
   atlas::Mesh mesh;

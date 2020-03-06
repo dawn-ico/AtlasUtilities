@@ -110,7 +110,7 @@ int main(int argc, char const* argv[]) {
   const int level = 0;
   double lDomain = M_PI;
 
-  const bool dbg_out = true;
+  const bool dbg_out = false;
 
   mylib::Grid mesh = MylibMeshRect(w);
 

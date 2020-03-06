@@ -12,11 +12,12 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
+#pragma once
+
+#include <atlas/mesh.h>
 #include <string>
 
-#include <atlas/mesh/Mesh.h>
-
-// This module offers a function to write a netcdf file
+// This module offers a function to write a netcdif file
 //    - The atlas mesh is either assumed to be "complete" or "minimal"
 //    - "minimal" means that only the nodes, and the cell to node nbh table is contained in the
 //      atlas mesh

@@ -16,28 +16,14 @@
 #include <numeric>
 #include <vector>
 
+#include "AtlasCartesianWrapper.h"
 #include "AtlasExtractSubmesh.h"
 #include "AtlasFromNetcdf.h"
 #include "AtlasToNetcdf.h"
 
-#include "AtlasCartesianWrapper.h"
-#include "atlas/grid/Grid.h"
-#include "atlas/grid/Iterator.h"
-#include "atlas/grid/StructuredGrid.h"
-#include "atlas/grid/detail/grid/Structured.h"
-#include "atlas/library/Library.h"
-#include "atlas/library/config.h"
-#include "atlas/mesh/Mesh.h"
-#include "atlas/mesh/actions/BuildEdges.h"
-#include "atlas/meshgenerator.h"
-
-#include "atlas/functionspace/CellColumns.h"
-#include "atlas/functionspace/EdgeColumns.h"
-#include "atlas/functionspace/NodeColumns.h"
-
-// remove later
-#include "atlas/output/Gmsh.h"
-
+#include <atlas/array.h>
+#include <atlas/grid.h>
+#include <atlas/meshgenerator.h>
 #include <atlas/util/CoordinateEnums.h>
 
 #include <netcdf>
