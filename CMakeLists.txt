@@ -26,4 +26,6 @@ add_subdirectory(libs)
 add_subdirectory(utils)
 add_subdirectory(tests)
 add_subdirectory(stencils)
+add_subdirectory(scripts)
 
+configure_file(resources/icon_160.nc ${PROJECT_BINARY_DIR}/tests COPYONLY)

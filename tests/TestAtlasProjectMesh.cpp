@@ -29,39 +29,6 @@
 #include "AtlasProjectMesh.h"
 #include "AtlasToNetcdf.h"
 
-namespace {
-void debugDump(const atlas::Mesh& mesh, const std::string prefix) {
-  auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
-  const atlas::mesh::HybridElements::Connectivity& node_connectivity =
-      mesh.cells().node_connectivity();
-
-  {
-    char buf[256];
-    sprintf(buf, "%sT.txt", prefix.c_str());
-    FILE* fp = fopen(buf, "w+");
-    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-      int nodeIdx0 = node_connectivity(cellIdx, 0) + 1;
-      int nodeIdx1 = node_connectivity(cellIdx, 1) + 1;
-      int nodeIdx2 = node_connectivity(cellIdx, 2) + 1;
-      fprintf(fp, "%d %d %d\n", nodeIdx0, nodeIdx1, nodeIdx2);
-    }
-    fclose(fp);
-  }
-
-  {
-    char buf[256];
-    sprintf(buf, "%sP.txt", prefix.c_str());
-    FILE* fp = fopen(buf, "w+");
-    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
-      double x = xy(nodeIdx, atlas::LON);
-      double y = xy(nodeIdx, atlas::LAT);
-      fprintf(fp, "%f %f \n", x, y);
-    }
-    fclose(fp);
-  }
-}
-} // namespace
-
 int main(int argc, char const* argv[]) {
   if(argc != 3) {
     std::cout << "intended use is\n"
@@ -80,6 +47,7 @@ int main(int argc, char const* argv[]) {
   auto meshProjectedOpt = AtlasProjectMesh(meshIn, startFace, numFace);
   assert(meshProjectedOpt.has_value());
   atlas::Mesh meshProjected = meshProjectedOpt.value();
-  debugDump(meshProjected, "PROJ_" + inFname);
   AtlasToNetCDF(meshProjected, outFname);
+
+  std::cout << "projection ran succesfully!\n";
 }

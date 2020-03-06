@@ -1,5 +1,6 @@
-function convergence_plot_bad(conv)
+function convergence_plot_bad(fname)
   clf;
+  conv = csvread(fname,2,0);
   hold on;
   x = log(conv(:,1)); Linf = log(conv(:,2)); L1 = log(conv(:,3)); L2 = log(conv(:,4));  
   plot(x,Linf,'LineWidth',3);
