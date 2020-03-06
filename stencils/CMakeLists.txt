@@ -1,0 +1,5 @@
+add_executable(atlasIconLaplaceDriver atlasIconLaplaceDriver.cpp)
+target_link_libraries(atlasIconLaplaceDriver atlas eckit atlasUtilsLib)
+
+add_executable(mylibIconLaplaceDriver mylibIconLaplaceDriver.cpp)
+target_link_libraries(mylibIconLaplaceDriver atlasUtilsLib myLib)

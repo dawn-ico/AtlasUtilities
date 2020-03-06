@@ -41,7 +41,7 @@
 #include <atlas/util/CoordinateEnums.h>
 
 // atlas interface for dawn generated code
-#include "atlas_interface.hpp"
+#include "interfaces/atlas_interface.hpp"
 
 // icon stencil
 #include "generated_iconLaplace.hpp"

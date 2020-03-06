@@ -1,8 +1,8 @@
 #ifndef DAWN_PROTOTYPE_MYLIB_INTERFACE_H_
 #define DAWN_PROTOTYPE_MYLIB_INTERFACE_H_
 
-#include "driver-includes/unstructured_interface.hpp"
 #include "mylib.hpp"
+#include "unstructured_interface.hpp"
 #include <functional>
 
 namespace mylibInterface {

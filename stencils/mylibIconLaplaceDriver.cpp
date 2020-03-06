@@ -34,8 +34,8 @@
 #include <fstream>
 #include <optional>
 
+#include "interfaces/mylib_interface.hpp"
 #include "mylib.hpp"
-#include "mylib_interface.hpp"
 
 #include "generated_iconLaplace.hpp"
 

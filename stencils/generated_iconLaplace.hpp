@@ -1,6 +1,6 @@
 #define DAWN_GENERATED 1
 #define DAWN_BACKEND_T CXXNAIVEICO
-#include "driver-includes/unstructured_interface.hpp"
+#include "interfaces/unstructured_interface.hpp"
 namespace dawn_generated {
 namespace cxxnaiveico {
 template <typename LibTag>
