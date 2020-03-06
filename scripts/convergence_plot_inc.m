@@ -1,4 +1,4 @@
-function convergence_plot_bad(fname)
+function convergence_plot_inc(fname)
   clf;
   conv = csvread(fname,2,0);
   hold on;
