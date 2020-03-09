@@ -47,9 +47,9 @@
 #include "generated_iconLaplace.hpp"
 
 // atlas utilities
-#include "AtlasCartesianWrapper.h"
-#include "AtlasFromNetcdf.h"
-#include "GenerateRectAtlasMesh.h"
+#include "../utils/AtlasCartesianWrapper.h"
+#include "../utils/AtlasFromNetcdf.h"
+#include "../utils/GenerateRectAtlasMesh.h"
 
 namespace {
 //===------------------------------------------------------------------------------------------===//
@@ -484,10 +484,14 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   // stencil call
   //===------------------------------------------------------------------------------------------===/
+  clock_t start = clock();
   dawn_generated::cxxnaiveico::icon<atlasInterface::atlasTag>(
       mesh, k_size, vec, div_vec, rot_vec, nabla2t1_vec, nabla2t2_vec, nabla2_vec,
       primal_edge_length, dual_edge_length, tangent_orientation, geofac_rot, geofac_div)
       .run();
+  clock_t end = clock();
+  std::cout << "run time Laplacian at resolution " << w << " "
+            << (end - start) / (double CLOCKS_PER_SEC);
 
   if(dbg_out) {
     dumpEdgeField("laplICONatlas_nabla2t1.txt", mesh, wrapper, nabla2t1_vec, level,

@@ -25,9 +25,9 @@
 #include <atlas/output/Gmsh.h>
 #include <atlas/util/CoordinateEnums.h>
 
-#include "AtlasFromNetcdf.h"
-#include "AtlasProjectMesh.h"
-#include "AtlasToNetcdf.h"
+#include "../utils/AtlasFromNetcdf.h"
+#include "../utils/AtlasProjectMesh.h"
+#include "../utils/AtlasToNetcdf.h"
 
 int main(int argc, char const* argv[]) {
   if(argc != 3) {

@@ -26,7 +26,7 @@
 #include <atlas/output/Gmsh.h>
 #include <atlas/util/CoordinateEnums.h>
 
-#include "AtlasFromNetcdf.h"
+#include "../utils/AtlasFromNetcdf.h"
 
 void debugDump(const atlas::Mesh& mesh) {
   auto lonlat = atlas::array::make_view<double, 2>(mesh.nodes().lonlat());
