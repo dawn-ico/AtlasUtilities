@@ -56,7 +56,7 @@ int main(int argc, char const* argv[]) {
   int w = atoi(argv[1]);
   int k_size = 1;
   const int level = 0;
-  double lDomain = M_PI;
+  double lDomain = 10;
 
   // dump a whole bunch of debug output (meant to be visualized using Octave, but gnuplot and the
   // like will certainly work too)
@@ -112,6 +112,9 @@ int main(int argc, char const* argv[]) {
   auto [dqxdt_F, dqxdt] = MakeAtlasField("qx", mesh.cells().size()); // discharge
   auto [dqydt_F, dqydt] = MakeAtlasField("qy", mesh.cells().size());
 
+  // CFL per cell
+  auto [cfl_F, cfl] = MakeAtlasField("CFL", mesh.cells().size());
+
   // upwinded edge values for fluid height, discharge
   auto [hU_F, hU] = MakeAtlasField("h", mesh.cells().size());
   auto [qUx_F, qUx] = MakeAtlasField("qx", mesh.cells().size());
@@ -142,6 +145,10 @@ int main(int argc, char const* argv[]) {
   double t = 0.;
   double dt = 1e-3;
   double t_final = 1.;
+
+  // constants
+  double CFLconst = 0.3;
+  const double Grav = 9.81;
 
   // writing this intentionally close to generated code
   while(t < t_final) {
@@ -235,13 +242,36 @@ int main(int argc, char const* argv[]) {
     }
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       dhdt(cellIdx, level) = dhdt(cellIdx, level) / A(cellIdx, level) * dt;
-      dqxdt(cellIdx, level) = dhdt(cellIdx, level) / A(cellIdx, level) * dt;
-      dqydt(cellIdx, level) = dhdt(cellIdx, level) / A(cellIdx, level) * dt;
+      dqxdt(cellIdx, level) =
+          (dhdt(cellIdx, level) / A(cellIdx, level) - Grav * h(cellIdx, level)) * dt;
+      dqydt(cellIdx, level) =
+          (dhdt(cellIdx, level) / A(cellIdx, level) - Grav * h(cellIdx, level)) * dt;
     }
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       h(cellIdx, level) = h(cellIdx, level) + dhdt(cellIdx, level);
       dqxdt(cellIdx, level) = qx(cellIdx, level) + dqxdt(cellIdx, level);
       dqydt(cellIdx, level) = qy(cellIdx, level) + dqydt(cellIdx, level);
+    }
+
+    // adapt CLF
+    // this would probably be in the driver code anyway
+    {
+      const auto& conn = mesh.cells().edge_connectivity();
+      for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+        double l0 = L(conn(cellIdx, 0), level);
+        double l1 = L(conn(cellIdx, 0), level);
+        double l2 = L(conn(cellIdx, 0), level);
+        double hi = h(cellIdx, level);
+        double Ux = qx(cellIdx, level) / hi;
+        double Uy = qy(cellIdx, level) / hi;
+        double U = sqrt(Ux * Ux + Uy * Uy);
+        cfl(cellIdx, level) = CFLconst * std::min({l0, l1, l2}) / (U + sqrt(Grav * hi));
+      }
+      double mindt = std::numeric_limits<double>::max();
+      for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+        mindt = fmin(cfl(cellIdx, mindt), mindt);
+      }
+      dt = mindt;
     }
 
     t += dt;
