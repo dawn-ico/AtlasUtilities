@@ -80,9 +80,8 @@ void debugDumpMeshRect(const atlas::Mesh& mesh, const std::string prefix) {
     fclose(fp);
   }
 }
-} // namespace
 
-atlas::Mesh AtlasMeshRect(int ny) {
+atlas::Mesh AtlasMeshRectImpl(int ny, double lengthFac) {
   atlas::Grid grid;
   int nx = 3 * ny;
   const bool dbgOut = false;
@@ -126,7 +125,7 @@ atlas::Mesh AtlasMeshRect(int ny) {
   }
 
   double newHeight = (ny - 1) * sqrt(3) / 2.;
-  double length = newHeight * 2;
+  double length = newHeight * lengthFac;
 
   std::vector<int> keep;
   std::tuple<double, double> lo{0., -std::numeric_limits<double>::max()};
@@ -182,3 +181,8 @@ atlas::Mesh AtlasMeshRect(int ny) {
 
   return rectMesh;
 }
+
+} // namespace
+
+atlas::Mesh AtlasMeshRect(int ny) { return AtlasMeshRectImpl(ny, 2.0); }
+atlas::Mesh AtlasMeshSquare(int ny) { return AtlasMeshRectImpl(ny, 1.0); }

@@ -54,9 +54,12 @@ public:
   std::vector<int> innerNodes(const atlas::Mesh& mesh) const;
   std::vector<int> innerCells(const atlas::Mesh& mesh) const;
 
+  double distanceToCircumcenter(const atlas::Mesh& mesh, int cellIdx, int nodeIdx) const;
+
   Point nodeLocation(int nodeIdx) const { return nodeToCart[nodeIdx]; }
   double dualCellArea(const atlas::Mesh& mesh, int nodeIdx) const;
 
-  explicit AtlasToCartesian(const atlas::Mesh& mesh, double scale, bool skewTrafo = false);
+  explicit AtlasToCartesian(const atlas::Mesh& mesh, double scale, bool skewTrafo = false,
+                            bool center = false);
   explicit AtlasToCartesian(const atlas::Mesh& mesh);
 };

@@ -45,6 +45,10 @@
 #include "../utils/AtlasCartesianWrapper.h"
 #include "../utils/GenerateRectAtlasMesh.h"
 
+void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
+                      const atlasInterface::Field<double>& field,
+                      std::optional<AtlasToCartesian> wrapper);
+
 int main(int argc, char const* argv[]) {
   // enable floating point exception
   feenableexcept(FE_INVALID | FE_OVERFLOW);
@@ -63,14 +67,13 @@ int main(int argc, char const* argv[]) {
   const bool dbg_out = false;
   const bool readMeshFromDisk = false;
 
-  atlas::Mesh mesh;
-  mesh = AtlasMeshRect(w);
+  atlas::Mesh mesh = AtlasMeshSquare(w);
   atlas::mesh::actions::build_edges(mesh, atlas::util::Config("pole_edges", false));
   atlas::mesh::actions::build_node_to_edge_connectivity(mesh);
   atlas::mesh::actions::build_element_to_edge_connectivity(mesh);
 
   // wrapper with various atlas helper functions
-  AtlasToCartesian wrapper(mesh);
+  AtlasToCartesian wrapper(mesh, lDomain, false, true);
 
   const int edgesPerVertex = 6;
   const int edgesPerCell = 3;
@@ -125,12 +128,10 @@ int main(int argc, char const* argv[]) {
   auto [L_F, L] = MakeAtlasField("L", mesh.edges().size());                // edge length
   auto [nx_F, nx] = MakeAtlasField("nx", mesh.edges().size());             // normals
   auto [ny_F, ny] = MakeAtlasField("ny", mesh.edges().size());
+  auto [alpha_F, alpha] = MakeAtlasField("alpha", mesh.edges().size());
 
   // Geometrical factors on cells
   auto [A_F, A] = MakeAtlasField("A", mesh.cells().size());
-
-  // Sparse dimension on edges
-  auto [d_F, d] = MakeAtlasSparseField("d", mesh.edges().size(), edgesPerCell);
 
   //===------------------------------------------------------------------------------------------===//
   // initialize geometrical info on edges
@@ -142,9 +143,45 @@ int main(int argc, char const* argv[]) {
     ny(edgeIdx, level) = nye;
   }
 
+  {
+    const auto& conn = mesh.edges().cell_connectivity();
+    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+      int cellIdx1 = conn(edgeIdx, 0);
+      int cellIdx2 = conn(edgeIdx, 1);
+      double d1 = wrapper.distanceToCircumcenter(mesh, cellIdx1, edgeIdx);
+      double d2 = wrapper.distanceToCircumcenter(mesh, cellIdx1, edgeIdx);
+      alpha(edgeIdx, level) = d2 / (d1 + d2);
+    }
+  }
+
+  //===------------------------------------------------------------------------------------------===//
+  // initialize geometrical info on cells
+  //===------------------------------------------------------------------------------------------===//
+  for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+    A(cellIdx, level) = wrapper.cellArea(mesh, cellIdx);
+  }
+
+  //===------------------------------------------------------------------------------------------===//
+  // initialize height and other fields
+  //===------------------------------------------------------------------------------------------===//
+  for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+    auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
+    double v = sqrt(xm * xm + ym * ym);
+    h(cellIdx, level) = exp(-5 * v * v) + 1;
+  }
+
+  for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+    qx(cellIdx, level) = 0.;
+    qy(cellIdx, level) = 0.;
+  }
+
+  // dumpMesh4Triplot(mesh, "init", h, std::nullopt);
+  dumpMesh4Triplot(mesh, "init", h, wrapper);
+
   double t = 0.;
-  double dt = 1e-3;
+  double dt = 0.;
   double t_final = 1.;
+  int step = 0;
 
   // constants
   double CFLconst = 0.3;
@@ -157,9 +194,11 @@ int main(int argc, char const* argv[]) {
       const auto& conn = mesh.edges().cell_connectivity();
       for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
         double lhs = 0.;
+        double weights[2] = {alpha(edgeIdx, level),
+                             1 - alpha(edgeIdx, level)}; // currently not supported in dawn
         for(int nbhIdx = 0; nbhIdx < conn.cols(edgeIdx); nbhIdx++) {
           int cellIdx = conn(edgeIdx, nbhIdx);
-          lhs += qx(cellIdx, level) / h(cellIdx, level) * 0.5;
+          lhs += qx(cellIdx, level) / h(cellIdx, level) * weights[nbhIdx];
         }
         Ux(edgeIdx, level) = lhs;
       }
@@ -211,7 +250,7 @@ int main(int argc, char const* argv[]) {
       const auto& conn = mesh.cells().edge_connectivity();
       for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
         double lhs = 0.;
-        for(int nbhIdx = 0; nbhIdx < conn(cellIdx, level); nbhIdx++) {
+        for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs += Q(edgeIdx, level);
         }
@@ -222,7 +261,7 @@ int main(int argc, char const* argv[]) {
       const auto& conn = mesh.cells().edge_connectivity();
       for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
         double lhs = 0.;
-        for(int nbhIdx = 0; nbhIdx < conn(cellIdx, level); nbhIdx++) {
+        for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs += Fx(edgeIdx, level);
         }
@@ -233,7 +272,7 @@ int main(int argc, char const* argv[]) {
       const auto& conn = mesh.cells().edge_connectivity();
       for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
         double lhs = 0.;
-        for(int nbhIdx = 0; nbhIdx < conn(cellIdx, level); nbhIdx++) {
+        for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs += Fy(edgeIdx, level);
         }
@@ -269,11 +308,63 @@ int main(int argc, char const* argv[]) {
       }
       double mindt = std::numeric_limits<double>::max();
       for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-        mindt = fmin(cfl(cellIdx, mindt), mindt);
+        mindt = fmin(cfl(cellIdx, level), mindt);
       }
       dt = mindt;
     }
 
     t += dt;
+
+    std::cout << "timestep " << step++ << " dt " << dt << "\n";
+  }
+
+  dumpMesh4Triplot(mesh, "final", h, wrapper);
+}
+
+void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
+                      const atlasInterface::Field<double>& field,
+                      std::optional<AtlasToCartesian> wrapper) {
+  auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
+  const atlas::mesh::HybridElements::Connectivity& node_connectivity =
+      mesh.cells().node_connectivity();
+
+  {
+    char buf[256];
+    sprintf(buf, "%sT.txt", prefix.c_str());
+    FILE* fp = fopen(buf, "w+");
+    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+      int nodeIdx0 = node_connectivity(cellIdx, 0) + 1;
+      int nodeIdx1 = node_connectivity(cellIdx, 1) + 1;
+      int nodeIdx2 = node_connectivity(cellIdx, 2) + 1;
+      fprintf(fp, "%d %d %d\n", nodeIdx0, nodeIdx1, nodeIdx2);
+    }
+    fclose(fp);
+  }
+
+  {
+    char buf[256];
+    sprintf(buf, "%sP.txt", prefix.c_str());
+    FILE* fp = fopen(buf, "w+");
+    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+      if(wrapper == std::nullopt) {
+        double x = xy(nodeIdx, atlas::LON);
+        double y = xy(nodeIdx, atlas::LAT);
+        fprintf(fp, "%f %f \n", x, y);
+      } else {
+        auto [x, y] = wrapper.value().nodeLocation(nodeIdx);
+        fprintf(fp, "%f %f \n", x, y);
+      }
+    }
+    fclose(fp);
+  }
+
+  {
+    char buf[256];
+    sprintf(buf, "%sC.txt", prefix.c_str());
+    FILE* fp = fopen(buf, "w+");
+    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+      fprintf(fp, "%f\n", field(cellIdx, 0));
+    }
+    fclose(fp);
   }
 }

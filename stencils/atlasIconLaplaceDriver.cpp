@@ -503,28 +503,28 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   // dumping a hopefully nice colorful divergence, curl & laplacian
   //===------------------------------------------------------------------------------------------===//
-  // dumpCellField("laplICONatlas_div.txt", mesh, wrapper, div_vec, level);
-  // dumpNodeField("laplICONatlas_rot.txt", mesh, wrapper, rot_vec, level);
-  // dumpEdgeField("laplICONatlas_out.txt", mesh, wrapper, nabla2_vec, level,
-  //               wrapper.innerEdges(mesh));
+  dumpCellField("laplICONatlas_div.txt", mesh, wrapper, div_vec, level);
+  dumpNodeField("laplICONatlas_rot.txt", mesh, wrapper, rot_vec, level);
+  dumpEdgeField("laplICONatlas_out.txt", mesh, wrapper, nabla2_vec, level,
+                wrapper.innerEdges(mesh));
 
-  // //===------------------------------------------------------------------------------------------===//
-  // // measuring errors
-  // //===------------------------------------------------------------------------------------------===//
-  // {
-  //   auto [Linf, L1, L2] = MeasureErrors(wrapper.innerCells(mesh), divVecSol, div_vec, level);
-  //   printf("[div] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
-  // }
-  // {
-  //   auto [Linf, L1, L2] = MeasureErrors(wrapper.innerNodes(mesh), rotVecSol, rot_vec, level);
-  //   printf("[rot] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
-  // }
-  // {
-  //   auto [Linf, L1, L2] = MeasureErrors(wrapper.innerEdges(mesh), lapVecSol, nabla2_vec, level);
-  //   printf("[lap] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
-  // }
+  //===------------------------------------------------------------------------------------------===//
+  // measuring errors
+  //===------------------------------------------------------------------------------------------===//
+  {
+    auto [Linf, L1, L2] = MeasureErrors(wrapper.innerCells(mesh), divVecSol, div_vec, level);
+    printf("[div] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
+  }
+  {
+    auto [Linf, L1, L2] = MeasureErrors(wrapper.innerNodes(mesh), rotVecSol, rot_vec, level);
+    printf("[rot] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
+  }
+  {
+    auto [Linf, L1, L2] = MeasureErrors(wrapper.innerEdges(mesh), lapVecSol, nabla2_vec, level);
+    printf("[lap] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
+  }
 
-  // printf("----\n");
+  printf("----\n");
 
   return 0;
 }

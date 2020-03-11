@@ -20,3 +20,4 @@
 #include <atlas/mesh.h>
 
 atlas::Mesh AtlasMeshRect(int ny);
+atlas::Mesh AtlasMeshSquare(int ny);

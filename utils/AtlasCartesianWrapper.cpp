@@ -145,6 +145,17 @@ Point AtlasToCartesian::cellCircumcenter(const atlas::Mesh& mesh, int cellIdx) c
   return {Ux, Uy};
 }
 
+double AtlasToCartesian::distanceToCircumcenter(const atlas::Mesh& mesh, int cellIdx,
+                                                int edgeIdx) const {
+  const auto [x0, y0] = cellCircumcenter(mesh, cellIdx);
+  const auto [e1, e2] = cartesianEdge(mesh, edgeIdx);
+  // https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Line_defined_by_two_points
+  const auto [x1, y1] = e1;
+  const auto [x2, y2] = e2;
+  return fabs((y2 - y1) * x0 - (x2 - x1) * y0 + x2 * y1 - y2 * x1) /
+         sqrt((y2 - y1) * (y2 - y1) + (x2 - x1) * (x2 - x1));
+}
+
 Orientation AtlasToCartesian::edgeOrientation(const atlas::Mesh& mesh, int edgeIdx) const {
 
   Point lo;
@@ -378,36 +389,42 @@ std::vector<int> AtlasToCartesian::innerCells(const atlas::Mesh& mesh) const {
   return innerCells;
 }
 
-AtlasToCartesian::AtlasToCartesian(const atlas::Mesh& mesh, double scale, bool skewTrafo)
+AtlasToCartesian::AtlasToCartesian(const atlas::Mesh& mesh, double scale, bool skewTrafo,
+                                   bool center)
     : nodeToCart(mesh.nodes().size()), nodeToCartUnskewed(mesh.nodes().size()) {
   double lonLo = std::numeric_limits<double>::max();
   double lonHi = -std::numeric_limits<double>::max();
   double latLo = std::numeric_limits<double>::max();
   double latHi = -std::numeric_limits<double>::max();
 
-  auto lonlat = atlas::array::make_view<double, 2>(mesh.nodes().lonlat());
+  auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
 
-  for(int cellIdx = 0; cellIdx < mesh.nodes().size(); cellIdx++) {
-    lonLo = fmin(lonlat(cellIdx, 0), lonLo);
-    lonHi = fmax(lonlat(cellIdx, 0), lonHi);
-    latLo = fmin(lonlat(cellIdx, 1), latLo);
-    latHi = fmax(lonlat(cellIdx, 1), latHi);
+  for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+    lonLo = fmin(xy(nodeIdx, 0), lonLo);
+    lonHi = fmax(xy(nodeIdx, 0), lonHi);
+    latLo = fmin(xy(nodeIdx, 1), latLo);
+    latHi = fmax(xy(nodeIdx, 1), latHi);
   }
 
-  for(int cellIdx = 0; cellIdx < mesh.nodes().size(); cellIdx++) {
-    double lon = lonlat(cellIdx, 0);
-    double lat = lonlat(cellIdx, 1);
+  for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+    double lon = xy(nodeIdx, 0);
+    double lat = xy(nodeIdx, 1);
     double cartx = (lon - lonLo) / (lonHi - lonLo) * scale;
     double carty = (lat - latLo) / (latHi - latLo) * scale;
 
-    nodeToCartUnskewed[cellIdx] = {cartx, carty};
+    if(center) {
+      cartx -= 0.5 * scale;
+      carty -= 0.5 * scale;
+    }
+
+    nodeToCartUnskewed[nodeIdx] = {cartx, carty};
 
     if(skewTrafo) {
       cartx = cartx - 0.5 * carty;
       carty = carty * sqrt(3) / 2.;
     }
 
-    nodeToCart[cellIdx] = {cartx, carty};
+    nodeToCart[nodeIdx] = {cartx, carty};
   }
 }
 
