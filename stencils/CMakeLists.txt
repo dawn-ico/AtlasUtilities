@@ -1,8 +1,11 @@
 add_executable(atlasIconLaplaceDriver atlasIconLaplaceDriver.cpp)
 target_link_libraries(atlasIconLaplaceDriver atlas eckit atlasUtilsLib)
+target_include_directories(atlasIconLaplaceDriver PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(atlasShallowWater shallowWater.cpp)
 target_link_libraries(atlasShallowWater atlas eckit atlasUtilsLib)
+target_include_directories(atlasShallowWater PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(mylibIconLaplaceDriver mylibIconLaplaceDriver.cpp)
 target_link_libraries(mylibIconLaplaceDriver atlasUtilsLib myLib)
+target_include_directories(mylibIconLaplaceDriver PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

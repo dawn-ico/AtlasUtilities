@@ -6,7 +6,7 @@ This repoistory contains some utilities to transform Atlas meshes as well as the
 
 Requirements:
 
-* libnetcdc-c++4
+* libnetcdf-c++4-dev
 * Atlas
 * eckit
 
@@ -60,8 +60,8 @@ python3 convergence_plot.py ./(mylib|atlas)IconLaplaceDriver
 
 Various error norms are collected for divergence, curl and (normal) vector Laplacian. 
 
-Various Octave scripts are provided to assist in visualizing debug and output data. For example, to get a convergence plot:
+Various Octave scripts (inside `scripts` directory) are provided to assist in visualizing debug and output data. For example, to get a convergence plot:
 
 ```
-octave:1> convergence_plot_dec('<path/to/conv.csv') 
+octave:1> convergence_plot_dec('path/to/conv.csv') 
 ```

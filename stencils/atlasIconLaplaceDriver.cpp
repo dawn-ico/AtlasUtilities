@@ -115,7 +115,7 @@ int main(int argc, char const* argv[]) {
 
   // dump a whole bunch of debug output (meant to be visualized using Octave, but gnuplot and the
   // like will certainly work too)
-  const bool dbg_out = false;
+  const bool dbg_out = true;
   const bool readMeshFromDisk = false;
 
   atlas::Mesh mesh;
@@ -490,8 +490,8 @@ int main(int argc, char const* argv[]) {
       primal_edge_length, dual_edge_length, tangent_orientation, geofac_rot, geofac_div)
       .run();
   clock_t end = clock();
-  std::cout << "run time Laplacian at resolution " << w << " "
-            << (end - start) / (double CLOCKS_PER_SEC) << "\n";
+  // std::cout << "run time Laplacian at resolution " << w << " "
+  //           << (end - start) / (double CLOCKS_PER_SEC) << "\n";
 
   if(dbg_out) {
     dumpEdgeField("laplICONatlas_nabla2t1.txt", mesh, wrapper, nabla2t1_vec, level,

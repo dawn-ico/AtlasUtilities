@@ -12,7 +12,7 @@ function convergence_plot_dec(fname)
   hcb = legend(['L_{\infty}';'L_1';'L_2';'lin. conv';'quad. conv']);
   xlabel('log(\Delta x)[°]')
   ylabel('log(L) [-]')
-  set(gca,'FontSize',50)
-  set(hcb,'FontSize',50)
+  set(gca,'FontSize',20)
+  set(hcb,'FontSize',20)
   ylim([-6,0]);
  endfunction
