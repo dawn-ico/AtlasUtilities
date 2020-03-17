@@ -68,14 +68,17 @@ struct atlasTag {};
 
 template <typename T>
 class Field {
+private:
+  atlas::array::ArrayView<T, 2> atlas_field_;
+
 public:
   T const& operator()(int f, int k) const { return atlas_field_(f, k); }
   T& operator()(int f, int k) { return atlas_field_(f, k); }
 
   Field(atlas::array::ArrayView<T, 2> const& atlas_field) : atlas_field_(atlas_field) {}
-
-private:
-  atlas::array::ArrayView<T, 2> atlas_field_;
+  T* data() { return atlas_field_.data(); }
+  const T* data() const { return atlas_field_.data(); }
+  int numElements() const { return atlas_field_.shape(0) * atlas_field_.shape(1); }
 };
 
 template <typename T>
@@ -87,6 +90,9 @@ Field<T> vertexFieldType(atlasTag);
 
 template <typename T>
 class SparseDimension {
+private:
+  atlas::array::ArrayView<T, 3> sparse_dimension_;
+
 public:
   T const& operator()(int elem_idx, int sparse_dim_idx, int level) const {
     return sparse_dimension_(elem_idx, level, sparse_dim_idx);
@@ -95,11 +101,14 @@ public:
     return sparse_dimension_(elem_idx, level, sparse_dim_idx);
   }
 
+  T* data() { return sparse_dimension_.data(); }
+  const T* data() const { return sparse_dimension_.data(); }
+  int numElements() const {
+    return sparse_dimension_.shape(0) * sparse_dimension_.shape(1) * sparse_dimension_.shape(2);
+  }
+
   SparseDimension(atlas::array::ArrayView<T, 3> const& sparse_dimension)
       : sparse_dimension_(sparse_dimension) {}
-
-private:
-  atlas::array::ArrayView<T, 3> sparse_dimension_;
 };
 
 template <typename T>
@@ -111,11 +120,17 @@ SparseDimension<T> sparseVertexFieldType(atlasTag);
 
 atlas::Mesh meshType(atlasTag);
 
-auto getCells(atlasTag, atlas::Mesh const& m) { return utility::irange(0, m.cells().size()); }
-auto getEdges(atlasTag, atlas::Mesh const& m) { return utility::irange(0, m.edges().size()); }
-auto getVertices(atlasTag, atlas::Mesh const& m) { return utility::irange(0, m.nodes().size()); }
+inline auto getCells(atlasTag, atlas::Mesh const& m) {
+  return utility::irange(0, m.cells().size());
+}
+inline auto getEdges(atlasTag, atlas::Mesh const& m) {
+  return utility::irange(0, m.edges().size());
+}
+inline auto getVertices(atlasTag, atlas::Mesh const& m) {
+  return utility::irange(0, m.nodes().size());
+}
 
-std::vector<int> getNeighs(const atlas::Mesh::HybridElements::Connectivity& conn, int idx) {
+inline std::vector<int> getNeighs(const atlas::Mesh::HybridElements::Connectivity& conn, int idx) {
   std::vector<int> neighs;
   for(int n = 0; n < conn.cols(idx); ++n) {
     neighs.emplace_back(conn(idx, n));
@@ -123,7 +138,7 @@ std::vector<int> getNeighs(const atlas::Mesh::HybridElements::Connectivity& conn
   return neighs;
 }
 
-std::vector<int> getNeighs(const atlas::mesh::Nodes::Connectivity& conn, int idx) {
+inline std::vector<int> getNeighs(const atlas::mesh::Nodes::Connectivity& conn, int idx) {
   std::vector<int> neighs;
   for(int n = 0; n < conn.cols(idx); ++n) {
     neighs.emplace_back(conn(idx, n));
@@ -131,65 +146,101 @@ std::vector<int> getNeighs(const atlas::mesh::Nodes::Connectivity& conn, int idx
   return neighs;
 }
 
-std::vector<int> const cellNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
-  const auto& conn = m.cells().edge_connectivity();
-  auto neighs = std::vector<int>{};
-  for(int n = 0; n < conn.cols(idx); ++n) {
-    int initialEdge = conn(idx, n);
-    for(int c1 = 0; c1 < m.cells().size(); ++c1) {
-      for(int n1 = 0; n1 < conn.cols(c1); ++n1) {
-        int compareEdge = conn(c1, n1);
-        if(initialEdge == compareEdge && c1 != idx) {
-          neighs.emplace_back(c1);
+inline std::vector<int> const& cellNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
+  // note this is only a workaround and does only work as long as we have only one mesh
+  static std::map<int, std::vector<int>> neighs;
+  if(neighs.count(idx) == 0) {
+    const auto& conn = m.cells().edge_connectivity();
+    neighs[idx] = std::vector<int>{};
+    for(int n = 0; n < conn.cols(idx); ++n) {
+      int initialEdge = conn(idx, n);
+      for(int c1 = 0; c1 < m.cells().size(); ++c1) {
+        for(int n1 = 0; n1 < conn.cols(c1); ++n1) {
+          int compareEdge = conn(c1, n1);
+          if(initialEdge == compareEdge && c1 != idx) {
+            neighs[idx].emplace_back(c1);
+          }
         }
       }
     }
   }
-  return neighs;
+  return neighs[idx];
 }
 
-std::vector<int> const edgeNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
-  return getNeighs(m.cells().edge_connectivity(), idx);
+inline std::vector<int> const& edgeNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
+  // note this is only a workaround and does only work as long as we have only one mesh
+  static std::map<int, std::vector<int>> neighs;
+  if(neighs.count(idx) == 0) {
+    neighs[idx] = getNeighs(m.cells().edge_connectivity(), idx);
+  }
+  return neighs[idx];
 }
 
-std::vector<int> const nodeNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
-  return getNeighs(m.cells().node_connectivity(), idx);
+inline std::vector<int> const& nodeNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
+  // note this is only a workaround and does only work as long as we have only one mesh
+  static std::map<int, std::vector<int>> neighs;
+  if(neighs.count(idx) == 0) {
+    neighs[idx] = getNeighs(m.cells().node_connectivity(), idx);
+  }
+  return neighs[idx];
 }
 
-std::vector<int> const cellNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
-  auto neighs = getNeighs(m.edges().cell_connectivity(), idx);
-  assert(neighs.size() == 2);
-  return neighs;
+inline std::vector<int> cellNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
+  // note this is only a workaround and does only work as long as we have only one mesh
+  static std::map<int, std::vector<int>> neighs;
+  if(neighs.count(idx) == 0) {
+    neighs[idx] = getNeighs(m.edges().cell_connectivity(), idx);
+  }
+  assert(neighs[idx].size() == 2);
+  return neighs[idx];
 }
 
-std::vector<int> const nodeNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
-  auto neighs = getNeighs(m.edges().node_connectivity(), idx);
-  assert(neighs.size() == 2);
-  return neighs;
+inline std::vector<int> nodeNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
+  // note this is only a workaround and does only work as long as we have only one mesh
+  static std::map<int, std::vector<int>> neighs;
+  if(neighs.count(idx) == 0) {
+    neighs[idx] = getNeighs(m.edges().node_connectivity(), idx);
+  }
+  assert(neighs[idx].size() == 2);
+  return neighs[idx];
 }
 
-std::vector<int> const cellNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
-  return getNeighs(m.nodes().cell_connectivity(), idx);
+inline std::vector<int> cellNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
+  // note this is only a workaround and does only work as long as we have only one mesh
+  static std::map<int, std::vector<int>> neighs;
+  if(neighs.count(idx) == 0) {
+    neighs[idx] = getNeighs(m.nodes().cell_connectivity(), idx);
+  }
+  return neighs[idx];
 }
 
-std::vector<int> const edgeNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
-  return getNeighs(m.cells().edge_connectivity(), idx);
+inline std::vector<int> edgeNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
+  // note this is only a workaround and does only work as long as we have only one mesh
+  static std::map<int, std::vector<int>> neighs;
+  if(neighs.count(idx) == 0) {
+    neighs[idx] = getNeighs(m.nodes().edge_connectivity(), idx);
+  }
+  return neighs[idx];
 }
 
-std::vector<int> const nodeNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
-  const auto& conn_nodes_to_edge = m.nodes().edge_connectivity();
-  auto neighs = std::vector<int>{};
-  for(int ne = 0; ne < conn_nodes_to_edge.cols(idx); ++ne) {
-    int nbh_edge_idx = conn_nodes_to_edge(idx, ne);
-    const auto& conn_edge_to_nodes = m.edges().node_connectivity();
-    for(int nn = 0; nn < conn_edge_to_nodes.cols(nbh_edge_idx); ++nn) {
-      int nbhNode = conn_edge_to_nodes(idx, nn);
-      if(nbhNode != idx) {
-        neighs.emplace_back(nbhNode);
+inline std::vector<int> nodeNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
+  // note this is only a workaround and does only work as long as we have only one mesh
+  static std::map<int, std::vector<int>> neighs;
+  if(neighs.count(idx) == 0) {
+    const auto& conn_nodes_to_edge = m.nodes().edge_connectivity();
+    neighs[idx] = std::vector<int>{};
+    for(int ne = 0; ne < conn_nodes_to_edge.cols(idx); ++ne) {
+      int nbh_edge_idx = conn_nodes_to_edge(idx, ne);
+      const auto& conn_edge_to_nodes = m.edges().node_connectivity();
+      for(int nn = 0; nn < conn_edge_to_nodes.cols(nbh_edge_idx); ++nn) {
+        int nbhNode = conn_edge_to_nodes(idx, nn);
+        if(nbhNode != idx) {
+          neighs[idx].emplace_back(nbhNode);
+        }
       }
     }
   }
-  return neighs;
+  return neighs[idx];
 }
 
 //===------------------------------------------------------------------------------------------===//
