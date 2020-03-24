@@ -137,7 +137,7 @@ int main(int argc, char const* argv[]) {
   }
 
   // wrapper with various atlas helper functions
-  AtlasToCartesian wrapper(mesh);
+  AtlasToCartesian wrapper(mesh, true);
 
   if(dbg_out) {
     dumpMesh4Triplot(mesh, "laplICONatlas_Mesh", wrapper);

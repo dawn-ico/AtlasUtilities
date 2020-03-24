@@ -61,5 +61,5 @@ public:
 
   explicit AtlasToCartesian(const atlas::Mesh& mesh, double scale, bool skewTrafo = false,
                             bool center = false);
-  explicit AtlasToCartesian(const atlas::Mesh& mesh);
+  explicit AtlasToCartesian(const atlas::Mesh& mesh, bool scale);
 };

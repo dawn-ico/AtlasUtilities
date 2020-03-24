@@ -18,6 +18,14 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
+// Things to checks
+//  [X] why are the normals off?
+//      => mesh was scaled with two slightly different factors along x and y
+//  [X] introduce the stabilization term
+//      => doesn't seem to help
+//  - what about the boundaries?
+//  - is the method really consistent now?
+
 // Shallow water equation solver as described in "A simple and efficient unstructured finite volume
 // scheme for solving the shallow water equations in overland flow applications" by Cea and Bladé
 // Follows notation in the paper as closely as possilbe
@@ -75,6 +83,12 @@ void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
 //===-----------------------------------------------------------------------------
 
 int main(int argc, char const* argv[]) {
+  // constants
+  const double CFLconst = 0.05;
+  const double Grav = -9.81;
+  const bool use_corrector = true;
+  const double refHeight = 3.; // make sure to chose this large enough
+
   // enable floating point exception
   feenableexcept(FE_INVALID | FE_OVERFLOW);
 
@@ -249,9 +263,10 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   // initialize height and other fields
   //===------------------------------------------------------------------------------------------===//
-  const double refHeight = 1.;
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
+    xm -= 1;
+    ym -= 1;
     double v = sqrt(xm * xm + ym * ym);
     h(cellIdx, level) = exp(-5 * v * v) + refHeight;
     // h(cellIdx, level) = refHeight;
@@ -308,21 +323,18 @@ int main(int argc, char const* argv[]) {
   }
 
   dumpEdgeField("nrm", mesh, wrapper, nx, ny, level);
+  dumpEdgeField("L", mesh, wrapper, L, level);
 
   // dumpMesh4Triplot(mesh, "init", h, std::nullopt);
   dumpMesh4Triplot(mesh, "init", h, wrapper);
 
   double t = 0.;
   double dt = 0;
-  double t_final = 4.;
+  double t_final = 16.;
   int step = 0;
 
-  // constants
-  const double CFLconst = 0.05;
-  const double Grav = -9.81;
-
   // writing this intentionally close to generated code
-  while(t < t_final && step < 1000) {
+  while(t < t_final) {
     // convert cell centered discharge to velocity and lerp to edges
     {
       const auto& conn = mesh.edges().cell_connectivity();
@@ -382,15 +394,20 @@ int main(int argc, char const* argv[]) {
     }
 
     // update edge fluxes
-    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-      // Q(edgeIdx, level) =
-      //     lambda(edgeIdx, level) * (hU(edgeIdx, level) - refHeight) * L(edgeIdx, level) -
-      //     0.5 * sqrt(fabs(Grav * (hs(edgeIdx, level) - refHeight))) * L(edgeIdx, level);
-
-      // Q(edgeIdx, level) =
-
-      //     lambda(edgeIdx, level) * (hU(edgeIdx, level) - refHeight) * L(edgeIdx, level);
-      Q(edgeIdx, level) = lambda(edgeIdx, level) * (hU(edgeIdx, level)) * L(edgeIdx, level);
+    {
+      const auto& conn = mesh.edges().cell_connectivity();
+      for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+        int cLo = conn(edgeIdx, 0);
+        int cHi = conn(edgeIdx, 1);
+        bool innerCell = cLo != conn.missing_value() && cHi != conn.missing_value();
+        Q(edgeIdx, level) = lambda(edgeIdx, level) * (hU(edgeIdx, level)) * L(edgeIdx, level);
+        if(use_corrector && innerCell) {
+          double hj = h(cHi, level);
+          double hi = h(cLo, level);
+          double deltaij = std::max(0., std::min(0., hj - hi));
+          Q(edgeIdx, level) -= deltaij * sqrt(fabs(Grav) * hU(edgeIdx, level)) * L(edgeIdx, level);
+        }
+      }
     }
     for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
       Fx(edgeIdx, level) = lambda(edgeIdx, level) * qUx(edgeIdx, level) * L(edgeIdx, level);
@@ -457,7 +474,6 @@ int main(int argc, char const* argv[]) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs -= hs(edgeIdx, level) * nx(edgeIdx, level) *
                  edge_orientation_cell(cellIdx, nbhIdx, level);
-          // lhs += hs(edgeIdx, level) * nx(edgeIdx, level);
         }
         Sx(cellIdx, level) = lhs;
       }
@@ -470,7 +486,6 @@ int main(int argc, char const* argv[]) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs -= hs(edgeIdx, level) * ny(edgeIdx, level) *
                  edge_orientation_cell(cellIdx, nbhIdx, level);
-          // lhs += hs(edgeIdx, level) * ny(edgeIdx, level);
         }
         Sy(cellIdx, level) = lhs;
       }
@@ -499,16 +514,10 @@ int main(int argc, char const* argv[]) {
       qy(cellIdx, level) = qy(cellIdx, level) - dqydt(cellIdx, level);
     }
 
-    dumpCellField("dhdt", mesh, wrapper, dhdt, level);
-    dumpCellField("dqxdt", mesh, wrapper, dqxdt, level);
-    dumpCellField("dqydt", mesh, wrapper, dqydt, level);
-    // if(step > 0) {
-    //   return 0;
-    // }
-
-    // for(auto it : boundaryCells) {
-    //   h(it, level) = 1;
-    // }
+    // dumpCellField("h", mesh, wrapper, h, level);
+    // dumpCellField("dhdt", mesh, wrapper, dhdt, level);
+    // dumpCellField("dqxdt", mesh, wrapper, dqxdt, level);
+    // dumpCellField("dqydt", mesh, wrapper, dqydt, level);
 
     // adapt CLF
     // this would probably be in the driver code anyway
@@ -533,14 +542,14 @@ int main(int argc, char const* argv[]) {
 
     t += dt;
 
-    {
+    if(step % 20 == 0) {
       char buf[256];
       // sprintf(buf, "out/step_%04d.txt", step);
       // dumpCellField(buf, mesh, wrapper, h, level);
       sprintf(buf, "out/stepH_%04d.txt", step);
       dumpCellFieldOnNodes(buf, mesh, wrapper, h, level);
     }
-    std::cout << "timestep " << step++ << " dt " << dt << "\n";
+    std::cout << "time " << t << " timestep " << step++ << " dt " << dt << "\n";
   }
 
   dumpMesh4Triplot(mesh, "final", h, wrapper);

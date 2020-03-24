@@ -406,11 +406,12 @@ AtlasToCartesian::AtlasToCartesian(const atlas::Mesh& mesh, double scale, bool s
     latHi = fmax(xy(nodeIdx, 1), latHi);
   }
 
+  double uniscale = scale / (lonHi - lonLo);
   for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
     double lon = xy(nodeIdx, 0);
     double lat = xy(nodeIdx, 1);
-    double cartx = (lon - lonLo) / (lonHi - lonLo) * scale;
-    double carty = (lat - latLo) / (latHi - latLo) * scale;
+    double cartx = (lon - lonLo) * uniscale;
+    double carty = (lat - latLo) * uniscale;
 
     if(center) {
       cartx -= 0.5 * scale;
@@ -428,12 +429,12 @@ AtlasToCartesian::AtlasToCartesian(const atlas::Mesh& mesh, double scale, bool s
   }
 }
 
-AtlasToCartesian::AtlasToCartesian(const atlas::Mesh& mesh)
+AtlasToCartesian::AtlasToCartesian(const atlas::Mesh& mesh, bool scale)
     : nodeToCart(mesh.nodes().size()), nodeToCartUnskewed(mesh.nodes().size()) {
   auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
   for(int cellIdx = 0; cellIdx < mesh.nodes().size(); cellIdx++) {
-    double cartx = xy(cellIdx, atlas::LON) / 180 * M_PI;
-    double carty = xy(cellIdx, atlas::LAT) / 90 * 0.5 * M_PI;
+    double cartx = scale ? xy(cellIdx, atlas::LON) / 180 * M_PI : xy(cellIdx, atlas::LON);
+    double carty = scale ? xy(cellIdx, atlas::LAT) / 90 * 0.5 * M_PI : xy(cellIdx, atlas::LAT);
     nodeToCartUnskewed[cellIdx] = {cartx, carty};
     nodeToCart[cellIdx] = {cartx, carty};
   }
