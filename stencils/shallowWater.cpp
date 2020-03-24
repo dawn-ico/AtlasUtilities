@@ -59,6 +59,9 @@ void dumpNodeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
                    atlasInterface::Field<double>& field, int level);
 void dumpCellField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
                    atlasInterface::Field<double>& field, int level);
+void dumpCellFieldOnNodes(const std::string& fname, const atlas::Mesh& mesh,
+                          AtlasToCartesian wrapper, atlasInterface::Field<double>& field,
+                          int level);
 void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
                    atlasInterface::Field<double>& field, int level,
                    std::optional<Orientation> color = std::nullopt);
@@ -93,6 +96,35 @@ int main(int argc, char const* argv[]) {
   atlas::mesh::actions::build_edges(mesh, atlas::util::Config("pole_edges", false));
   atlas::mesh::actions::build_node_to_edge_connectivity(mesh);
   atlas::mesh::actions::build_element_to_edge_connectivity(mesh);
+
+  for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+    const auto& nodeToEdge = mesh.nodes().edge_connectivity();
+    const auto& edgeToCell = mesh.edges().cell_connectivity();
+    auto& nodeToCell = mesh.nodes().cell_connectivity();
+
+    std::set<int> nbh;
+    for(int nbhEdgeIdx = 0; nbhEdgeIdx < nodeToEdge.cols(nodeIdx); nbhEdgeIdx++) {
+      int edgeIdx = nodeToEdge(nodeIdx, nbhEdgeIdx);
+      if(edgeIdx == nodeToEdge.missing_value()) {
+        continue;
+      }
+      for(int nbhCellIdx = 0; nbhCellIdx < edgeToCell.cols(edgeIdx); nbhCellIdx++) {
+        int cellIdx = edgeToCell(edgeIdx, nbhCellIdx);
+        if(cellIdx == edgeToCell.missing_value()) {
+          continue;
+        }
+        nbh.insert(cellIdx);
+      }
+    }
+
+    assert(nbh.size() <= 6);
+    std::vector<int> initData(nbh.size(), nodeToCell.missing_value());
+    nodeToCell.add(1, nbh.size(), initData.data());
+    int copyIter = 0;
+    for(const int n : nbh) {
+      nodeToCell.set(nodeIdx, copyIter++, n);
+    }
+  }
 
   // wrapper with various atlas helper functions
   AtlasToCartesian wrapper(mesh, lDomain, false, true);
@@ -217,10 +249,12 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   // initialize height and other fields
   //===------------------------------------------------------------------------------------------===//
+  const double refHeight = 1.;
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
     double v = sqrt(xm * xm + ym * ym);
-    h(cellIdx, level) = exp(-5 * v * v) + 1;
+    h(cellIdx, level) = exp(-5 * v * v) + refHeight;
+    // h(cellIdx, level) = refHeight;
   }
 
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
@@ -273,20 +307,22 @@ int main(int argc, char const* argv[]) {
     fclose(fp);
   }
 
+  dumpEdgeField("nrm", mesh, wrapper, nx, ny, level);
+
   // dumpMesh4Triplot(mesh, "init", h, std::nullopt);
   dumpMesh4Triplot(mesh, "init", h, wrapper);
 
   double t = 0.;
-  double dt = 0.;
-  double t_final = 1.;
+  double dt = 0;
+  double t_final = 4.;
   int step = 0;
 
   // constants
-  double CFLconst = 0.05;
-  const double Grav = 9.81;
+  const double CFLconst = 0.05;
+  const double Grav = -9.81;
 
   // writing this intentionally close to generated code
-  while(t < t_final && step < 100) {
+  while(t < t_final && step < 1000) {
     // convert cell centered discharge to velocity and lerp to edges
     {
       const auto& conn = mesh.edges().cell_connectivity();
@@ -339,15 +375,22 @@ int main(int argc, char const* argv[]) {
       for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
         int lo = conn(edgeIdx, 0);
         int hi = conn(edgeIdx, 1);
-        hU(edgeIdx, level) = (lambda(edgeIdx, level) > 0) ? h(hi, level) : h(lo, level);
-        qUx(edgeIdx, level) = (lambda(edgeIdx, level) > 0) ? qx(hi, level) : qx(lo, level);
-        qUy(edgeIdx, level) = (lambda(edgeIdx, level) > 0) ? qy(hi, level) : qy(lo, level);
+        hU(edgeIdx, level) = (lambda(edgeIdx, level) < 0) ? h(hi, level) : h(lo, level);
+        qUx(edgeIdx, level) = (lambda(edgeIdx, level) < 0) ? qx(hi, level) : qx(lo, level);
+        qUy(edgeIdx, level) = (lambda(edgeIdx, level) < 0) ? qy(hi, level) : qy(lo, level);
       }
     }
 
     // update edge fluxes
     for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-      Q(edgeIdx, level) = lambda(edgeIdx, level) * hU(edgeIdx, level) * L(edgeIdx, level);
+      // Q(edgeIdx, level) =
+      //     lambda(edgeIdx, level) * (hU(edgeIdx, level) - refHeight) * L(edgeIdx, level) -
+      //     0.5 * sqrt(fabs(Grav * (hs(edgeIdx, level) - refHeight))) * L(edgeIdx, level);
+
+      // Q(edgeIdx, level) =
+
+      //     lambda(edgeIdx, level) * (hU(edgeIdx, level) - refHeight) * L(edgeIdx, level);
+      Q(edgeIdx, level) = lambda(edgeIdx, level) * (hU(edgeIdx, level)) * L(edgeIdx, level);
     }
     for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
       Fx(edgeIdx, level) = lambda(edgeIdx, level) * qUx(edgeIdx, level) * L(edgeIdx, level);
@@ -374,9 +417,14 @@ int main(int argc, char const* argv[]) {
         double lhs = 0.;
         for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
           int edgeIdx = conn(cellIdx, nbhIdx);
-          lhs += Q(edgeIdx, level);
+          lhs += Q(edgeIdx, level) * edge_orientation_cell(cellIdx, nbhIdx, level);
         }
         dhdt(cellIdx, level) = lhs;
+      }
+    }
+    {
+      for(auto it : boundaryCells) {
+        dhdt(it, level) = 0.;
       }
     }
     {
@@ -385,7 +433,7 @@ int main(int argc, char const* argv[]) {
         double lhs = 0.;
         for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
           int edgeIdx = conn(cellIdx, nbhIdx);
-          lhs += Fx(edgeIdx, level);
+          lhs += Fx(edgeIdx, level) * edge_orientation_cell(cellIdx, nbhIdx, level);
         }
         dqxdt(cellIdx, level) = lhs;
       }
@@ -396,7 +444,7 @@ int main(int argc, char const* argv[]) {
         double lhs = 0.;
         for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
           int edgeIdx = conn(cellIdx, nbhIdx);
-          lhs += Fy(edgeIdx, level);
+          lhs += Fy(edgeIdx, level) * edge_orientation_cell(cellIdx, nbhIdx, level);
         }
         dqydt(cellIdx, level) = lhs;
       }
@@ -409,6 +457,7 @@ int main(int argc, char const* argv[]) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs -= hs(edgeIdx, level) * nx(edgeIdx, level) *
                  edge_orientation_cell(cellIdx, nbhIdx, level);
+          // lhs += hs(edgeIdx, level) * nx(edgeIdx, level);
         }
         Sx(cellIdx, level) = lhs;
       }
@@ -421,6 +470,7 @@ int main(int argc, char const* argv[]) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs -= hs(edgeIdx, level) * ny(edgeIdx, level) *
                  edge_orientation_cell(cellIdx, nbhIdx, level);
+          // lhs += hs(edgeIdx, level) * ny(edgeIdx, level);
         }
         Sy(cellIdx, level) = lhs;
       }
@@ -429,21 +479,32 @@ int main(int argc, char const* argv[]) {
       Sx(it, level) = 0.;
       Sy(it, level) = 0.;
     }
+    // dumpEdgeField("hs", mesh, wrapper, hs, level);
+    // dumpCellField("Sx", mesh, wrapper, Sx, level);
+    // dumpCellField("Sy", mesh, wrapper, Sy, level);
+    // exit(0);
 
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       dhdt(cellIdx, level) = dhdt(cellIdx, level) / A(cellIdx, level) * dt;
-      dqxdt(cellIdx, level) = (dhdt(cellIdx, level) / A(cellIdx, level) -
-                               Grav * h(cellIdx, level) * Sx(cellIdx, level)) *
+      dqxdt(cellIdx, level) = (dqxdt(cellIdx, level) / A(cellIdx, level) -
+                               Grav * (h(cellIdx, level)) * Sx(cellIdx, level)) *
                               dt;
-      dqydt(cellIdx, level) = (dhdt(cellIdx, level) / A(cellIdx, level) -
-                               Grav * h(cellIdx, level) * Sy(cellIdx, level)) *
+      dqydt(cellIdx, level) = (dqydt(cellIdx, level) / A(cellIdx, level) -
+                               Grav * (h(cellIdx, level)) * Sy(cellIdx, level)) *
                               dt;
     }
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       h(cellIdx, level) = h(cellIdx, level) + dhdt(cellIdx, level);
-      qx(cellIdx, level) = qx(cellIdx, level) + dqxdt(cellIdx, level);
-      qy(cellIdx, level) = qy(cellIdx, level) + dqydt(cellIdx, level);
+      qx(cellIdx, level) = qx(cellIdx, level) - dqxdt(cellIdx, level);
+      qy(cellIdx, level) = qy(cellIdx, level) - dqydt(cellIdx, level);
     }
+
+    dumpCellField("dhdt", mesh, wrapper, dhdt, level);
+    dumpCellField("dqxdt", mesh, wrapper, dqxdt, level);
+    dumpCellField("dqydt", mesh, wrapper, dqydt, level);
+    // if(step > 0) {
+    //   return 0;
+    // }
 
     // for(auto it : boundaryCells) {
     //   h(it, level) = 1;
@@ -455,13 +516,13 @@ int main(int argc, char const* argv[]) {
       const auto& conn = mesh.cells().edge_connectivity();
       for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
         double l0 = L(conn(cellIdx, 0), level);
-        double l1 = L(conn(cellIdx, 0), level);
-        double l2 = L(conn(cellIdx, 0), level);
+        double l1 = L(conn(cellIdx, 1), level);
+        double l2 = L(conn(cellIdx, 2), level);
         double hi = h(cellIdx, level);
         double Ux = qx(cellIdx, level) / hi;
         double Uy = qy(cellIdx, level) / hi;
         double U = sqrt(Ux * Ux + Uy * Uy);
-        cfl(cellIdx, level) = CFLconst * std::min({l0, l1, l2}) / (U + sqrt(Grav * hi));
+        cfl(cellIdx, level) = CFLconst * std::min({l0, l1, l2}) / (U + sqrt(fabs(Grav) * hi));
       }
       double mindt = std::numeric_limits<double>::max();
       for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
@@ -474,8 +535,10 @@ int main(int argc, char const* argv[]) {
 
     {
       char buf[256];
-      sprintf(buf, "out/step_%04d.txt", step);
-      dumpCellField(buf, mesh, wrapper, h, level);
+      // sprintf(buf, "out/step_%04d.txt", step);
+      // dumpCellField(buf, mesh, wrapper, h, level);
+      sprintf(buf, "out/stepH_%04d.txt", step);
+      dumpCellFieldOnNodes(buf, mesh, wrapper, h, level);
     }
     std::cout << "timestep " << step++ << " dt " << dt << "\n";
   }
@@ -537,6 +600,23 @@ void dumpNodeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
   for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
     auto [xm, ym] = wrapper.nodeLocation(nodeIdx);
     fprintf(fp, "%f %f %f\n", xm, ym, field(nodeIdx, level));
+  }
+  fclose(fp);
+}
+
+void dumpCellFieldOnNodes(const std::string& fname, const atlas::Mesh& mesh,
+                          AtlasToCartesian wrapper, atlasInterface::Field<double>& field,
+                          int level) {
+  FILE* fp = fopen(fname.c_str(), "w+");
+  const auto& conn = mesh.nodes().cell_connectivity();
+  for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+    double h = 0.;
+    for(int nbhIdx = 0; nbhIdx < conn.cols(nodeIdx); nbhIdx++) {
+      int cIdx = conn(nodeIdx, nbhIdx);
+      h += field(cIdx, 0);
+    }
+    h /= conn.cols(nodeIdx);
+    fprintf(fp, "%f\n", h);
   }
   fclose(fp);
 }

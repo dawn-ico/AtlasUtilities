@@ -115,7 +115,7 @@ atlas::Mesh AtlasMeshRectImpl(int ny, double lengthFac) {
     double x = xy(nodeIdx, atlas::LON);
     double y = xy(nodeIdx, atlas::LAT);
     x = x - 0.5 * y;
-    y = y * sqrt(3) / 2.;
+    y = y * sqrt(3.) / 2.;
     xy(nodeIdx, atlas::LON) = x;
     xy(nodeIdx, atlas::LAT) = y;
   }

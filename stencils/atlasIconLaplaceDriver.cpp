@@ -157,7 +157,7 @@ int main(int argc, char const* argv[]) {
   auto MakeAtlasField = [&](const std::string& name,
                             int size) -> std::tuple<atlas::Field, atlasInterface::Field<double>> {
     atlas::Field field_F{name, atlas::array::DataType::real64(),
-                         atlas::array::make_shape(mesh.edges().size(), k_size)};
+                         atlas::array::make_shape(size, k_size)};
     return {field_F, atlas::array::make_view<double, 2>(field_F)};
   };
 

@@ -6,3 +6,6 @@ target_link_libraries(atlasShallowWater atlas eckit atlasUtilsLib)
 
 add_executable(mylibIconLaplaceDriver mylibIconLaplaceDriver.cpp)
 target_link_libraries(mylibIconLaplaceDriver atlasUtilsLib myLib)
+
+add_executable(atlasIconDiamond atlasIconDiamond.cpp)
+target_link_libraries(atlasIconDiamond atlasUtilsLib myLib)
