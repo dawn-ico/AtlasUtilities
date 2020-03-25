@@ -83,11 +83,6 @@ void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
 //===-----------------------------------------------------------------------------
 
 int main(int argc, char const* argv[]) {
-  // constants
-  const double CFLconst = 0.05;
-  const double Grav = -9.81;
-  const bool use_corrector = true;
-  const double refHeight = 3.; // make sure to chose this large enough
 
   // enable floating point exception
   feenableexcept(FE_INVALID | FE_OVERFLOW);
@@ -108,7 +103,7 @@ int main(int argc, char const* argv[]) {
   // use high frequency damping. original damping by Cea and Blade is heavily dissipative, hence the
   // damping can be modulated by a coefficient in this implementation
   const bool use_corrector = true;
-  const double DampingCoeff = 0.02;
+  const double DampingCoeff = 0.01;
 
   // optional bed friction, manning coefficient of 0.01 is roughly equal to flow of water over
   // concrete
@@ -241,8 +236,8 @@ int main(int argc, char const* argv[]) {
     for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
       int cellIdx1 = conn(edgeIdx, 0);
       int cellIdx2 = conn(edgeIdx, 1);
-      double d1 = wrapper.distanceToCircumcenter(mesh, cellIdx1, edgeIdx);
-      double d2 = wrapper.distanceToCircumcenter(mesh, cellIdx1, edgeIdx);
+      double d1 = (cellIdx1 >= 0) ? wrapper.distanceToCircumcenter(mesh, cellIdx1, edgeIdx) : 0.;
+      double d2 = (cellIdx2 >= 0) ? wrapper.distanceToCircumcenter(mesh, cellIdx2, edgeIdx) : 0.;
       alpha(edgeIdx, level) = d2 / (d1 + d2);
     }
   }
@@ -353,6 +348,18 @@ int main(int argc, char const* argv[]) {
 
   // writing this intentionally close to generated code
   while(t < t_final) {
+
+    // make some splashes
+    if(step > 0 && step % 1000 == 0) {
+      for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+        auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
+        xm -= 1;
+        ym -= 1;
+        double v = sqrt(xm * xm + ym * ym);
+        h(cellIdx, level) += exp(-5 * v * v);
+      }
+    }
+
     // convert cell centered discharge to velocity and lerp to edges
     {
       const auto& conn = mesh.edges().cell_connectivity();
@@ -471,11 +478,6 @@ int main(int argc, char const* argv[]) {
           lhs += Q(edgeIdx, level) * edge_orientation_cell(cellIdx, nbhIdx, level);
         }
         dhdt(cellIdx, level) = lhs;
-      }
-    }
-    {
-      for(auto it : boundaryCells) {
-        dhdt(it, level) = 0.;
       }
     }
     {
