@@ -2,7 +2,7 @@ add_executable(atlasIconLaplaceDriver atlasIconLaplaceDriver.cpp)
 target_link_libraries(atlasIconLaplaceDriver atlas eckit atlasUtilsLib)
 
 add_executable(atlasShallowWater shallowWater.cpp)
-target_link_libraries(atlasShallowWater atlas eckit atlasUtilsLib)
+target_link_libraries(atlasShallowWater netcdf atlas eckit atlasUtilsLib ${NETCDF_LIBRARY})
 
 add_executable(mylibIconLaplaceDriver mylibIconLaplaceDriver.cpp)
 target_link_libraries(mylibIconLaplaceDriver atlasUtilsLib myLib)

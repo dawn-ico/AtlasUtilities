@@ -357,7 +357,7 @@ int main(int argc, char const* argv[]) {
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     const atlas::mesh::HybridElements::Connectivity& cellEdgeConnectivity =
         mesh.cells().edge_connectivity();
-    auto [xm, ym] = cellCircumcenter(mesh, xyz, cellIdx);
+    glm::dvec3 c = cellCircumcenter(mesh, xyz, cellIdx);
 
     const int missingVal = cellEdgeConnectivity.missing_value();
     int numNbh = cellEdgeConnectivity.cols(cellIdx);
@@ -365,10 +365,10 @@ int main(int argc, char const* argv[]) {
 
     for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
       int edgeIdx = cellEdgeConnectivity(cellIdx, nbhIdx);
-      auto [emX, emY] = edgeMidpoint(mesh, xyz, edgeIdx);
-      Vector toOutsdie{emX - xm, emY - ym};
-      Vector primal = {nx(edgeIdx, level), ny(edgeIdx, level)};
-      edge_orientation_cell(cellIdx, nbhIdx, level) = sgn(dot(toOutsdie, primal));
+      glm::dvec3 em = edgeMidpoint(mesh, xyz, edgeIdx);
+      glm::dvec3 toOutside = em - c;
+      glm::dvec3 primal = {nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx, level)};
+      edge_orientation_cell(cellIdx, nbhIdx, level) = sgn(glm::dot(toOutside, primal));
     }
     // explanation: the vector cellMidpoint -> edgeMidpoint is guaranteed to point outside. The
     // dot product checks if the edge normal has the same orientation. edgeMidpoint is arbitrary,
@@ -508,14 +508,6 @@ int main(int argc, char const* argv[]) {
       Fy(edgeIdx, level) = lambda(edgeIdx, level) * qUy(edgeIdx, level) * L(edgeIdx, level);
     }
 
-    // boundary conditions (zero flux)
-    // currently not supported in dawn
-    for(auto it : boundaryEdges) {
-      Q(it, level) = 0;
-      Fx(it, level) = 0;
-      Fy(it, level) = 0;
-    }
-
     // dumpEdgeField("L", mesh, wrapper, L, level);
     // return 0;
 
@@ -589,10 +581,6 @@ int main(int argc, char const* argv[]) {
         Sy(cellIdx, level) = lhs;
       }
     }
-    for(auto it : boundaryCells) {
-      Sx(it, level) = 0.;
-      Sy(it, level) = 0.;
-    }
     // dumpEdgeField("hs", mesh, wrapper, hs, level);
     // dumpCellField("Sx", mesh, wrapper, Sx, level);
     // dumpCellField("Sy", mesh, wrapper, Sy, level);
@@ -646,12 +634,9 @@ int main(int argc, char const* argv[]) {
       // sprintf(buf, "out/step_%04d.txt", step);
       // dumpCellField(buf, mesh, wrapper, h, level);
       sprintf(buf, "out/stepH_%04d.txt", step);
-      dumpCellFieldOnNodes(buf, mesh, wrapper, h, level);
     }
     std::cout << "time " << t << " timestep " << step++ << " dt " << dt << "\n";
   }
-
-  dumpMesh4Triplot(mesh, "final", h, wrapper);
 }
 
 void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
