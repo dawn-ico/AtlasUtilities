@@ -97,6 +97,24 @@ int main(int argc, char const* argv[]) {
     return -1;
   }
   int w = atoi(argv[1]);
+  // reference level of fluid, make sure to chose this large enough, otherwise initial
+  // splash may induce negative fluid height and crash the sim
+  const double refHeight = 2.;
+
+  // constants
+  const double CFLconst = 0.05;
+  const double Grav = -9.81;
+
+  // use high frequency damping. original damping by Cea and Blade is heavily dissipative, hence the
+  // damping can be modulated by a coefficient in this implementation
+  const bool use_corrector = true;
+  const double DampingCoeff = 0.02;
+
+  // optional bed friction, manning coefficient of 0.01 is roughly equal to flow of water over
+  // concrete
+  const bool use_friction = true;
+  const double ManningCoeff = 0.01;
+
   int k_size = 1;
   const int level = 0;
   double lDomain = 10;
@@ -340,10 +358,14 @@ int main(int argc, char const* argv[]) {
       const auto& conn = mesh.edges().cell_connectivity();
       for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
         double lhs = 0.;
-        double weights[2] = {alpha(edgeIdx, level),
-                             1 - alpha(edgeIdx, level)}; // currently not supported in dawn
+        double weights[2] = {1 - alpha(edgeIdx, level),
+                             alpha(edgeIdx, level)}; // currently not supported in dawn
         for(int nbhIdx = 0; nbhIdx < conn.cols(edgeIdx); nbhIdx++) {
           int cellIdx = conn(edgeIdx, nbhIdx);
+          if(cellIdx == conn.missing_value()) {
+            assert(weights[nbhIdx] == 0.);
+            continue;
+          }
           lhs += qx(cellIdx, level) / h(cellIdx, level) * weights[nbhIdx];
         }
         Ux(edgeIdx, level) = lhs;
@@ -353,9 +375,13 @@ int main(int argc, char const* argv[]) {
       const auto& conn = mesh.edges().cell_connectivity();
       for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
         double lhs = 0.;
-        double weights[2] = {alpha(edgeIdx, level), 1 - alpha(edgeIdx, level)};
+        double weights[2] = {1 - alpha(edgeIdx, level), alpha(edgeIdx, level)};
         for(int nbhIdx = 0; nbhIdx < conn.cols(edgeIdx); nbhIdx++) {
           int cellIdx = conn(edgeIdx, nbhIdx);
+          if(cellIdx == conn.missing_value()) {
+            assert(weights[nbhIdx] == 0.);
+            continue;
+          }
           lhs += qy(cellIdx, level) / h(cellIdx, level) * weights[nbhIdx];
         }
         Uy(edgeIdx, level) = lhs;
@@ -365,14 +391,21 @@ int main(int argc, char const* argv[]) {
       const auto& conn = mesh.edges().cell_connectivity();
       for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
         double lhs = 0.;
-        double weights[2] = {alpha(edgeIdx, level), 1 - alpha(edgeIdx, level)};
+        double weights[2] = {1 - alpha(edgeIdx, level), alpha(edgeIdx, level)};
         for(int nbhIdx = 0; nbhIdx < conn.cols(edgeIdx); nbhIdx++) {
           int cellIdx = conn(edgeIdx, nbhIdx);
+          if(cellIdx == conn.missing_value()) {
+            assert(weights[nbhIdx] == 0.);
+            continue;
+          }
           lhs += h(cellIdx, level) * weights[nbhIdx];
         }
         hs(edgeIdx, level) = lhs;
       }
     }
+
+    // dumpEdgeField("hs", mesh, wrapper, hs, level);
+    // exit(0);
 
     // normal edge velocity
     for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
@@ -404,8 +437,9 @@ int main(int argc, char const* argv[]) {
         if(use_corrector && innerCell) {
           double hj = h(cHi, level);
           double hi = h(cLo, level);
-          double deltaij = std::max(0., std::min(0., hj - hi));
-          Q(edgeIdx, level) -= deltaij * sqrt(fabs(Grav) * hU(edgeIdx, level)) * L(edgeIdx, level);
+          double deltaij = hi - hj;
+          Q(edgeIdx, level) -= DampingCoeff * 0.5 * deltaij *
+                               sqrt(fabs(Grav) * hU(edgeIdx, level)) * L(edgeIdx, level);
         }
       }
     }
@@ -453,6 +487,12 @@ int main(int argc, char const* argv[]) {
           lhs += Fx(edgeIdx, level) * edge_orientation_cell(cellIdx, nbhIdx, level);
         }
         dqxdt(cellIdx, level) = lhs;
+        if(use_friction) {
+          double lenq = sqrt(qx(cellIdx, level) * qx(cellIdx, level) +
+                             qy(cellIdx, level) * qy(cellIdx, level));
+          dqxdt(cellIdx, level) -= Grav * ManningCoeff * ManningCoeff /
+                                   pow(h(cellIdx, level), 10. / 3.) * lenq * qx(cellIdx, level);
+        }
       }
     }
     {
@@ -464,6 +504,12 @@ int main(int argc, char const* argv[]) {
           lhs += Fy(edgeIdx, level) * edge_orientation_cell(cellIdx, nbhIdx, level);
         }
         dqydt(cellIdx, level) = lhs;
+        if(use_friction) {
+          double lenq = sqrt(qx(cellIdx, level) * qx(cellIdx, level) +
+                             qy(cellIdx, level) * qy(cellIdx, level));
+          dqydt(cellIdx, level) -= Grav * ManningCoeff * ManningCoeff /
+                                   pow(h(cellIdx, level), 10. / 3.) * lenq * qy(cellIdx, level);
+        }
       }
     }
     {
