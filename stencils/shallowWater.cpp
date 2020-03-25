@@ -58,11 +58,14 @@ static int sgn(T val) {
 
 void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
                       const atlasInterface::Field<double>& field,
-                      std::optional<AtlasToCartesian> wrapper);
+                      const std::vector<glm::dvec3>& xyz);
+
+void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
+                      const std::vector<glm::dvec3>& xyz);
 
 void dumpNodeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
                    atlasInterface::Field<double>& field, int level);
-void dumpCellField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
+void dumpCellField(const std::string& fname, const atlas::Mesh& mesh,
                    atlasInterface::Field<double>& field, int level);
 void dumpCellFieldOnNodes(const std::string& fname, const atlas::Mesh& mesh,
                           AtlasToCartesian wrapper, atlasInterface::Field<double>& field,
@@ -81,7 +84,7 @@ void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
 
 std::tuple<glm::dvec3, glm::dvec3> cartEdge(const atlas::Mesh& mesh,
                                             const std::vector<glm::dvec3>& xyz, size_t edgeIdx) {
-  const auto& conn = mesh.nodes().edge_connectivity();
+  const auto& conn = mesh.edges().node_connectivity();
   return {xyz[conn(edgeIdx, 0)], xyz[conn(edgeIdx, 1)]};
 }
 
@@ -131,7 +134,7 @@ glm::dvec3 primalNormal(const atlas::Mesh& mesh, const std::vector<glm::dvec3>& 
                         size_t edgeIdx) {
   const auto& conn = mesh.edges().cell_connectivity();
   glm::dvec3 c0 = cellCircumcenter(mesh, xyz, conn(edgeIdx, 0));
-  glm::dvec3 c1 = cellCircumcenter(mesh, xyz, conn(edgeIdx, 0));
+  glm::dvec3 c1 = cellCircumcenter(mesh, xyz, conn(edgeIdx, 1));
   return glm::normalize(c1 - c0);
 }
 
@@ -183,12 +186,12 @@ int main(int argc, char const* argv[]) {
 
   // use high frequency damping. original damping by Cea and Blade is heavily dissipative, hence the
   // damping can be modulated by a coefficient in this implementation
-  const bool use_corrector = true;
+  const bool use_corrector = false;
   const double DampingCoeff = 0.02;
 
   // optional bed friction, manning coefficient of 0.01 is roughly equal to flow of water over
   // concrete
-  const bool use_friction = true;
+  const bool use_friction = false;
   const double ManningCoeff = 0.01;
 
   int k_size = 1;
@@ -400,7 +403,6 @@ int main(int argc, char const* argv[]) {
 
   // writing this intentionally close to generated code
   while(t < t_final) {
-
     // if(step > 0 && step % 1000 == 0) {
     //   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     //     auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
@@ -629,10 +631,10 @@ int main(int argc, char const* argv[]) {
 
     t += dt;
 
-    if(step % 1 == 0) {
+    if(step % 5 == 0) {
       char buf[256];
       // sprintf(buf, "out/step_%04d.txt", step);
-      // dumpCellField(buf, mesh, wrapper, h, level);
+      dumpCellField(buf, mesh, h, level);
       sprintf(buf, "out/stepH_%04d.txt", step);
     }
     std::cout << "time " << t << " timestep " << step++ << " dt " << dt << "\n";
@@ -641,8 +643,7 @@ int main(int argc, char const* argv[]) {
 
 void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
                       const atlasInterface::Field<double>& field,
-                      std::optional<AtlasToCartesian> wrapper) {
-  auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
+                      const std::vector<glm::dvec3>& xyz) {
   const atlas::mesh::HybridElements::Connectivity& node_connectivity =
       mesh.cells().node_connectivity();
 
@@ -663,15 +664,8 @@ void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
     char buf[256];
     sprintf(buf, "%sP.txt", prefix.c_str());
     FILE* fp = fopen(buf, "w+");
-    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
-      if(wrapper == std::nullopt) {
-        double x = xy(nodeIdx, atlas::LON);
-        double y = xy(nodeIdx, atlas::LAT);
-        fprintf(fp, "%f %f \n", x, y);
-      } else {
-        auto [x, y] = wrapper.value().nodeLocation(nodeIdx);
-        fprintf(fp, "%f %f \n", x, y);
-      }
+    for(const auto& it : xyz) {
+      fprintf(fp, "%f %f %f\n", it.x, it.y, it.z);
     }
     fclose(fp);
   }
@@ -682,6 +676,35 @@ void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
     FILE* fp = fopen(buf, "w+");
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       fprintf(fp, "%f\n", field(cellIdx, 0));
+    }
+    fclose(fp);
+  }
+}
+
+void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
+                      const std::vector<glm::dvec3>& xyz) {
+  const atlas::mesh::HybridElements::Connectivity& node_connectivity =
+      mesh.cells().node_connectivity();
+
+  {
+    char buf[256];
+    sprintf(buf, "%sT.txt", prefix.c_str());
+    FILE* fp = fopen(buf, "w+");
+    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+      int nodeIdx0 = node_connectivity(cellIdx, 0) + 1;
+      int nodeIdx1 = node_connectivity(cellIdx, 1) + 1;
+      int nodeIdx2 = node_connectivity(cellIdx, 2) + 1;
+      fprintf(fp, "%d %d %d\n", nodeIdx0, nodeIdx1, nodeIdx2);
+    }
+    fclose(fp);
+  }
+
+  {
+    char buf[256];
+    sprintf(buf, "%sP.txt", prefix.c_str());
+    FILE* fp = fopen(buf, "w+");
+    for(const auto& it : xyz) {
+      fprintf(fp, "%f %f %f\n", it.x, it.y, it.z);
     }
     fclose(fp);
   }
@@ -714,12 +737,11 @@ void dumpCellFieldOnNodes(const std::string& fname, const atlas::Mesh& mesh,
   fclose(fp);
 }
 
-void dumpCellField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
+void dumpCellField(const std::string& fname, const atlas::Mesh& mesh,
                    atlasInterface::Field<double>& field, int level) {
   FILE* fp = fopen(fname.c_str(), "w+");
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-    auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
-    fprintf(fp, "%f %f %f\n", xm, ym, field(cellIdx, level));
+    fprintf(fp, "%f\n", field(cellIdx, level));
   }
   fclose(fp);
 }
