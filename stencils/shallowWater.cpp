@@ -18,14 +18,6 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
-// Things to checks
-//  [X] why are the normals off?
-//      => mesh was scaled with two slightly different factors along x and y
-//  [X] introduce the stabilization term
-//      => doesn't seem to help
-//  - what about the boundaries?
-//  - is the method really consistent now?
-
 // Shallow water equation solver as described in "A simple and efficient unstructured finite volume
 // scheme for solving the shallow water equations in overland flow applications" by Cea and Bladé
 // Follows notation in the paper as closely as possilbe
@@ -33,9 +25,14 @@
 #include <cmath>
 #include <cstdio>
 #include <fenv.h>
+#include <glm/fwd.hpp>
 #include <optional>
 #include <set>
 #include <vector>
+
+#include <glm/glm.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/norm.hpp>
 
 // atlas functions
 #include <atlas/array.h>
@@ -52,7 +49,7 @@
 
 // atlas utilities
 #include "../utils/AtlasCartesianWrapper.h"
-#include "../utils/GenerateRectAtlasMesh.h"
+#include "../utils/AtlasFromNetcdf.h"
 
 template <typename T>
 static int sgn(T val) {
@@ -82,21 +79,100 @@ void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
 
 //===-----------------------------------------------------------------------------
 
-int main(int argc, char const* argv[]) {
-  // constants
-  const double CFLconst = 0.05;
-  const double Grav = -9.81;
-  const bool use_corrector = true;
-  const double refHeight = 3.; // make sure to chose this large enough
+std::tuple<glm::dvec3, glm::dvec3> cartEdge(const atlas::Mesh& mesh,
+                                            const std::vector<glm::dvec3>& xyz, size_t edgeIdx) {
+  const auto& conn = mesh.nodes().edge_connectivity();
+  return {xyz[conn(edgeIdx, 0)], xyz[conn(edgeIdx, 1)]};
+}
 
+double edgeLength(const atlas::Mesh& mesh, const std::vector<glm::dvec3>& xyz, size_t edgeIdx) {
+  auto [p1, p2] = cartEdge(mesh, xyz, edgeIdx);
+  return glm::length(p1 - p2);
+}
+
+glm::dvec3 edgeMidpoint(const atlas::Mesh& mesh, const std::vector<glm::dvec3>& xyz,
+                        size_t edgeIdx) {
+  auto [p1, p2] = cartEdge(mesh, xyz, edgeIdx);
+  return 0.5 * (p1 + p2);
+}
+
+glm::dvec3 cellCircumcenter(const atlas::Mesh& mesh, const std::vector<glm::dvec3>& xyz,
+                            int cellIdx) {
+  const auto& cellNodeConnectivity = mesh.cells().node_connectivity();
+  const int missingVal = cellNodeConnectivity.missing_value();
+
+  // only valid for tringular cells with all node neighbors set
+  int numNbh = cellNodeConnectivity.cols(cellIdx);
+  assert(numNbh == 3);
+  for(int nbh = 0; nbh < numNbh; nbh++) {
+    int nbhIdx = cellNodeConnectivity(cellIdx, nbh);
+    assert(nbhIdx != missingVal);
+  }
+
+  glm::dvec3 a = xyz[(cellNodeConnectivity(cellIdx, 0))];
+  glm::dvec3 b = xyz[(cellNodeConnectivity(cellIdx, 1))];
+  glm::dvec3 c = xyz[(cellNodeConnectivity(cellIdx, 2))];
+
+  // https://gamedev.stackexchange.com/questions/60630/how-do-i-find-the-circumcenter-of-a-triangle-in-3d
+  glm::dvec3 ac = c - a;
+  glm::dvec3 ab = b - a;
+  glm::dvec3 abXac = glm::cross(ab, ac);
+
+  // this is the vector from a TO the circumsphere center
+  glm::dvec3 toCircumsphereCenter =
+      (glm::cross(abXac, ab) * glm::length(ac) + glm::cross(ac, abXac) * glm::length2(ab)) /
+      (2.f * glm::length2(abXac));
+  double circumsphereRadius = glm::length(toCircumsphereCenter);
+
+  return a + toCircumsphereCenter;
+}
+
+glm::dvec3 primalNormal(const atlas::Mesh& mesh, const std::vector<glm::dvec3>& xyz,
+                        size_t edgeIdx) {
+  const auto& conn = mesh.edges().cell_connectivity();
+  glm::dvec3 c0 = cellCircumcenter(mesh, xyz, conn(edgeIdx, 0));
+  glm::dvec3 c1 = cellCircumcenter(mesh, xyz, conn(edgeIdx, 0));
+  return glm::normalize(c1 - c0);
+}
+
+double distanceToCircumcenter(const atlas::Mesh& mesh, const std::vector<glm::dvec3>& xyz,
+                              size_t cellIdx, size_t edgeIdx) {
+  glm::dvec3 x0 = cellCircumcenter(mesh, xyz, cellIdx);
+  auto [x1, x2] = cartEdge(mesh, xyz, edgeIdx);
+  // https://mathworld.wolfram.com/Point-LineDistance3-Dimensional.html
+  return glm::length(glm::cross(x0 - x1, x0 - x2)) / glm::length(x2 - x1);
+}
+
+double cellArea(const atlas::Mesh& mesh, const std::vector<glm::dvec3>& xyz, size_t cellIdx) {
+  const auto& cellNodeConnectivity = mesh.cells().node_connectivity();
+  const int missingVal = cellNodeConnectivity.missing_value();
+
+  // only valid for triangular cells with all node neighbors set
+  int numNbh = cellNodeConnectivity.cols(cellIdx);
+  assert(numNbh == 3);
+  for(int nbh = 0; nbh < numNbh; nbh++) {
+    int nbhIdx = cellNodeConnectivity(cellIdx, nbh);
+    assert(nbhIdx != missingVal);
+  }
+
+  glm::dvec3 v0 = xyz[(cellNodeConnectivity(cellIdx, 0))];
+  glm::dvec3 v1 = xyz[(cellNodeConnectivity(cellIdx, 1))];
+  glm::dvec3 v2 = xyz[(cellNodeConnectivity(cellIdx, 2))];
+
+  return 0.5 * glm::length(glm::cross(v1 - v0, v2 - v0));
+}
+
+//===-----------------------------------------------------------------------------
+
+int main(int argc, char const* argv[]) {
   // enable floating point exception
   feenableexcept(FE_INVALID | FE_OVERFLOW);
 
   if(argc != 2) {
-    std::cout << "intended use is\n" << argv[0] << " ny" << std::endl;
+    std::cout << "intended use is\n" << argv[0] << " <mesh>.nc" << std::endl;
     return -1;
   }
-  int w = atoi(argv[1]);
+
   // reference level of fluid, make sure to chose this large enough, otherwise initial
   // splash may induce negative fluid height and crash the sim
   const double refHeight = 2.;
@@ -124,7 +200,7 @@ int main(int argc, char const* argv[]) {
   const bool dbg_out = false;
   const bool readMeshFromDisk = false;
 
-  atlas::Mesh mesh = AtlasMeshSquare(w);
+  atlas::Mesh mesh = AtlasMeshFromNetCDFMinimal(argv[1]).value();
   atlas::mesh::actions::build_edges(mesh, atlas::util::Config("pole_edges", false));
   atlas::mesh::actions::build_node_to_edge_connectivity(mesh);
   atlas::mesh::actions::build_element_to_edge_connectivity(mesh);
@@ -158,8 +234,25 @@ int main(int argc, char const* argv[]) {
     }
   }
 
-  // wrapper with various atlas helper functions
-  AtlasToCartesian wrapper(mesh, lDomain, false, true);
+  // netcdf mesh has lon/lat set in degrees, we also want cartesian coordinates here
+  std::vector<glm::dvec3> xyz(mesh.nodes().size());
+  {
+    auto latToRad = [](double rad) { return rad / 90. * (0.5 * M_PI); };
+    auto lonToRad = [](double rad) { return rad / 180. * M_PI; };
+    auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
+    auto lonlat = atlas::array::make_view<double, 2>(mesh.nodes().lonlat());
+    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+      double lon = lonToRad(lonlat(nodeIdx, atlas::LON));
+      double lat = latToRad(lonlat(nodeIdx, atlas::LAT));
+
+      const double R = 5;
+      double x = R * cos(lat) * cos(lon);
+      double y = R * cos(lat) * sin(lon);
+      double z = R * sin(lat);
+
+      xyz[nodeIdx] = {x, y, z};
+    }
+  }
 
   const int edgesPerVertex = 6;
   const int edgesPerCell = 3;
@@ -219,6 +312,7 @@ int main(int argc, char const* argv[]) {
   auto [L_F, L] = MakeAtlasField("L", mesh.edges().size());                // edge length
   auto [nx_F, nx] = MakeAtlasField("nx", mesh.edges().size());             // normals
   auto [ny_F, ny] = MakeAtlasField("ny", mesh.edges().size());
+  auto [nz_F, nz] = MakeAtlasField("nz", mesh.edges().size());
   auto [alpha_F, alpha] = MakeAtlasField("alpha", mesh.edges().size());
 
   // Geometrical factors on cells
@@ -230,10 +324,11 @@ int main(int argc, char const* argv[]) {
   // initialize geometrical info on edges
   //===------------------------------------------------------------------------------------------===//
   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-    L(edgeIdx, level) = wrapper.edgeLength(mesh, edgeIdx);
-    auto [nxe, nye] = wrapper.primalNormal(mesh, edgeIdx);
-    nx(edgeIdx, level) = nxe;
-    ny(edgeIdx, level) = nye;
+    L(edgeIdx, level) = edgeLength(mesh, xyz, edgeIdx);
+    auto n = primalNormal(mesh, xyz, edgeIdx);
+    nx(edgeIdx, level) = n.x;
+    ny(edgeIdx, level) = n.y;
+    nz(edgeIdx, level) = n.z;
   }
 
   {
@@ -241,8 +336,10 @@ int main(int argc, char const* argv[]) {
     for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
       int cellIdx1 = conn(edgeIdx, 0);
       int cellIdx2 = conn(edgeIdx, 1);
-      double d1 = wrapper.distanceToCircumcenter(mesh, cellIdx1, edgeIdx);
-      double d2 = wrapper.distanceToCircumcenter(mesh, cellIdx1, edgeIdx);
+      assert(cellIdx1 != conn.missing_value());
+      assert(cellIdx2 != conn.missing_value());
+      double d1 = distanceToCircumcenter(mesh, xyz, cellIdx1, edgeIdx);
+      double d2 = distanceToCircumcenter(mesh, xyz, cellIdx2, edgeIdx);
       alpha(edgeIdx, level) = d2 / (d1 + d2);
     }
   }
@@ -251,7 +348,7 @@ int main(int argc, char const* argv[]) {
   // initialize geometrical info on cells
   //===------------------------------------------------------------------------------------------===//
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-    A(cellIdx, level) = wrapper.cellArea(mesh, cellIdx);
+    A(cellIdx, level) = cellArea(mesh, xyz, cellIdx);
   }
 
   auto dot = [](const Vector& v1, const Vector& v2) {
@@ -260,7 +357,7 @@ int main(int argc, char const* argv[]) {
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     const atlas::mesh::HybridElements::Connectivity& cellEdgeConnectivity =
         mesh.cells().edge_connectivity();
-    auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
+    auto [xm, ym] = cellCircumcenter(mesh, xyz, cellIdx);
 
     const int missingVal = cellEdgeConnectivity.missing_value();
     int numNbh = cellEdgeConnectivity.cols(cellIdx);
@@ -268,7 +365,7 @@ int main(int argc, char const* argv[]) {
 
     for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
       int edgeIdx = cellEdgeConnectivity(cellIdx, nbhIdx);
-      auto [emX, emY] = wrapper.edgeMidpoint(mesh, edgeIdx);
+      auto [emX, emY] = edgeMidpoint(mesh, xyz, edgeIdx);
       Vector toOutsdie{emX - xm, emY - ym};
       Vector primal = {nx(edgeIdx, level), ny(edgeIdx, level)};
       edge_orientation_cell(cellIdx, nbhIdx, level) = sgn(dot(toOutsdie, primal));
@@ -282,69 +379,19 @@ int main(int argc, char const* argv[]) {
   // initialize height and other fields
   //===------------------------------------------------------------------------------------------===//
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-    auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
-    xm -= 1;
-    ym -= 1;
-    double v = sqrt(xm * xm + ym * ym);
-    h(cellIdx, level) = exp(-5 * v * v) + refHeight;
-    // h(cellIdx, level) = refHeight;
+    // auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
+    // xm -= 1;
+    // ym -= 1;
+    // double v = sqrt(xm * xm + ym * ym);
+    // h(cellIdx, level) = exp(-5 * v * v) + refHeight;
+    h(cellIdx, level) = refHeight;
+    // h(cellIdx, level) = sin(xm) * sin(ym) + refHeight;
   }
 
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     qx(cellIdx, level) = 0.;
     qy(cellIdx, level) = 0.;
   }
-
-  //===------------------------------------------------------------------------------------------===//
-  // collect boundary edgse
-  //===------------------------------------------------------------------------------------------===//
-  std::set<int> boundaryEdgesSet;
-  {
-    const auto& conn = mesh.edges().cell_connectivity();
-    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-      if(conn.cols(edgeIdx) < 2) {
-        boundaryEdgesSet.insert(edgeIdx);
-        continue;
-      }
-
-      int cellIdx0 = conn(edgeIdx, 0);
-      int cellIdx1 = conn(edgeIdx, 1);
-      if(cellIdx0 == conn.missing_value() || cellIdx1 == conn.missing_value()) {
-        boundaryEdgesSet.insert(edgeIdx);
-      }
-    }
-  }
-  std::vector<int> boundaryEdges(boundaryEdgesSet.begin(), boundaryEdgesSet.end());
-
-  std::vector<int> boundaryCells;
-  {
-    const auto& conn = mesh.cells().edge_connectivity();
-    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-      int edgeIdx0 = conn(cellIdx, 0);
-      int edgeIdx1 = conn(cellIdx, 1);
-      int edgeIdx2 = conn(cellIdx, 2);
-
-      if(boundaryEdgesSet.count(edgeIdx0) || boundaryEdgesSet.count(edgeIdx1) ||
-         boundaryEdgesSet.count(edgeIdx2)) {
-        boundaryCells.push_back(cellIdx);
-      }
-    }
-  }
-
-  {
-    FILE* fp = fopen("boundaryCells.txt", "w+");
-    for(auto it : boundaryCells) {
-      auto [x, y] = wrapper.cellCircumcenter(mesh, it);
-      fprintf(fp, "%f %f\n", x, y);
-    }
-    fclose(fp);
-  }
-
-  dumpEdgeField("nrm", mesh, wrapper, nx, ny, level);
-  dumpEdgeField("L", mesh, wrapper, L, level);
-
-  // dumpMesh4Triplot(mesh, "init", h, std::nullopt);
-  dumpMesh4Triplot(mesh, "init", h, wrapper);
 
   double t = 0.;
   double dt = 0;
@@ -353,6 +400,17 @@ int main(int argc, char const* argv[]) {
 
   // writing this intentionally close to generated code
   while(t < t_final) {
+
+    // if(step > 0 && step % 1000 == 0) {
+    //   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+    //     auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
+    //     xm -= 1;
+    //     ym -= 1;
+    //     double v = sqrt(xm * xm + ym * ym);
+    //     h(cellIdx, level) += exp(-5 * v * v);
+    //   }
+    // }
+
     // convert cell centered discharge to velocity and lerp to edges
     {
       const auto& conn = mesh.edges().cell_connectivity();
@@ -474,11 +532,6 @@ int main(int argc, char const* argv[]) {
       }
     }
     {
-      for(auto it : boundaryCells) {
-        dhdt(it, level) = 0.;
-      }
-    }
-    {
       const auto& conn = mesh.cells().edge_connectivity();
       for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
         double lhs = 0.;
@@ -588,7 +641,7 @@ int main(int argc, char const* argv[]) {
 
     t += dt;
 
-    if(step % 20 == 0) {
+    if(step % 1 == 0) {
       char buf[256];
       // sprintf(buf, "out/step_%04d.txt", step);
       // dumpCellField(buf, mesh, wrapper, h, level);

@@ -64,7 +64,7 @@ void debugDump(const atlas::Mesh& mesh) {
   // visualize with
   // P = load('netcdfMeshP.txt');
   // T = load('netcdfMeshT.txt');
-  // trisurf(T(1:10,:),P(:,1),P(:,2),P(:,3))
+  // trisurf(T,P(:,1),P(:,2),P(:,3))
 }
 
 int main(int argc, char const* argv[]) {
