@@ -221,7 +221,7 @@ double cellArea(const atlas::Mesh& mesh, const std::vector<glm::dvec3>& xyz, siz
 //               cos(p_lat) * cartvec.z};
 // }
 
-glm::dvec2 cvec2gvec(const glm::dvec2& lonlat, const glm::dvec3& cartvec) {
+glm::dvec2 cvec2gvec(glm::dvec2 lonlat, glm::dvec3 cartvec) {
   double p_long = lonlat.x;
   double p_lat = lonlat.y;
 
@@ -240,6 +240,16 @@ glm::dvec2 cvec2gvec(const glm::dvec2& lonlat, const glm::dvec3& cartvec) {
   p_gv = z_clt * p_cw - p_gv;
   return {p_gu, p_gv};
 }
+
+// seems to be equivalent to above
+// glm::dvec2 cc2tv(const glm::dvec2& position, const glm::dvec3& xx) {
+//   double z_sinlo = sin(position.x);
+//   double z_coslo = cos(position.x);
+//   double z_sinlacoslo = sin(position.y) * z_coslo;
+//   double z_sinlasinlo = sin(position.y) * z_sinlo;
+//   return {-z_sinlo * xx.x + z_coslo * xx.y,
+//           -z_sinlacoslo * xx.x - z_sinlasinlo * xx.y + cos(position.y) * xx.z};
+// }
 
 //===-----------------------------------------------------------------------------
 
@@ -272,7 +282,7 @@ int main(int argc, char const* argv[]) {
 
   int k_size = 1;
   const int level = 0;
-  const double R = 5;
+  const double R = 1;
 
   // dump a whole bunch of debug output (meant to be visualized using Octave, but gnuplot and the
   // like will certainly work too)
@@ -422,13 +432,25 @@ int main(int argc, char const* argv[]) {
     ny(edgeIdx, level) = n.y;
     nz(edgeIdx, level) = n.z;
 
+    const auto& conn = mesh.edges().cell_connectivity();
+    glm::dvec3 c0 = cellCircumcenter(mesh, xyz, conn(edgeIdx, 0));
+
     glm::dvec3 p = edgeMidpoint(mesh, xyz, edgeIdx);
     auto toLonLat = [R](glm::dvec3 cart) -> glm::dvec2 {
       return {atan2(cart.y, cart.x), asin(cart.z / R)};
     };
-    glm::dvec2 pLL = toLonLat(p);
+    glm::dvec2 pLL = toLonLat(p); // <- ICON version
+    // glm::dvec2 pLL = toLonLat(c0);
 
-    glm::dvec2 nrmLC = cvec2gvec(pLL, n);
+    glm::dvec2 nrmLC = glm::normalize(cvec2gvec(pLL, n));
+    auto [n1, n2] = cartEdge(mesh, xyz, edgeIdx);
+    glm::dvec2 n1LC = cvec2gvec(pLL, n1);
+    glm::dvec2 n2LC = cvec2gvec(pLL, n2);
+    glm::dvec2 eLC = glm::normalize(n1LC - n2LC);
+    double check = glm::dot(eLC, nrmLC);
+    if(check > 1e-6) {
+      printf("weird normal!\n");
+    }
     nxLC(edgeIdx, level) = nrmLC.x;
     nyLC(edgeIdx, level) = nrmLC.y;
   }
@@ -483,21 +505,67 @@ int main(int argc, char const* argv[]) {
       return {atan2(cart.y, cart.x), asin(cart.z / R)};
     };
     glm::dvec2 cLL = toLonLat(c);
+    glm::dvec2 cLC = cvec2gvec(cLL, c);
 
     const int missingVal = cellEdgeConnectivity.missing_value();
     int numNbh = cellEdgeConnectivity.cols(cellIdx);
     assert(numNbh == edgesPerCell);
 
+    if(cellIdx == 300) {
+      const auto& conn = mesh.cells().node_connectivity();
+      glm::dvec3 p1 = xyz[conn(cellIdx, 0)];
+      glm::dvec3 p2 = xyz[conn(cellIdx, 1)];
+      glm::dvec3 p3 = xyz[conn(cellIdx, 2)];
+
+      glm::dvec2 p1LC = cvec2gvec(cLL, p1);
+      glm::dvec2 p2LC = cvec2gvec(cLL, p2);
+      glm::dvec2 p3LC = cvec2gvec(cLL, p3);
+
+      printf("%f %f\n", cLC.x, cLC.y);
+      printf("%f %f %f %f\n", p1LC.x, p2LC.x, p3LC.x, p1LC.x);
+      printf("%f %f %f %f\n", p1LC.y, p2LC.y, p3LC.y, p1LC.y);
+
+      // printf("%f %f %f %f\n", p1.x, p2.x, p3.x, p1.x);
+      // printf("%f %f %f %f\n", p1.y, p2.y, p3.y, p1.y);
+      // printf("%f %f %f %f\n", p1.z, p2.z, p3.z, p1.z);
+
+      // cvec2gvec(em, em - c)
+    }
+
     for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
       int edgeIdx = cellEdgeConnectivity(cellIdx, nbhIdx);
 
       glm::dvec3 em = edgeMidpoint(mesh, xyz, edgeIdx);
-      glm::dvec2 emLC =
-          cvec2gvec(cLL, em); // guaranteed to point to outside since circumcenter is origin
-      glm::dvec2 nrmLC =
-          cvec2gvec(cLL, {nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx, level)});
+      glm::dvec2 emLC = cvec2gvec(cLL, em);
+      // glm::dvec2 emLC =
+      //     cc2tv(cLL, em); // guaranteed to point to outside since circumcenter is origin
+      // glm::dvec2 nrmLC = cc2tv(cLL, {nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx,
+      // level)});
 
-      edge_orientation_cell(cellIdx, nbhIdx, level) = sgn(glm::dot(emLC, nrmLC));
+      // glm::dvec2 toOutsideLC =
+      //     cvec2gvec(em, em - c); // guaranteed to point to outside since circumcenter is
+      //     origin
+      // glm::dvec2 nrmLC =
+      //     cvec2gvec(em, {nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx, level)});
+
+      // edge_orientation_cell(cellIdx, nbhIdx, level) =
+      //     sgn(glm::dot(glm::normalize(toOutsideLC), glm::normalize(nrmLC)));
+
+      edge_orientation_cell(cellIdx, nbhIdx, level) = sgn(glm::dot(
+          glm::normalize(em - c),
+          glm::normalize(glm::dvec3{nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx, level)})));
+
+      if(cellIdx == 300) {
+        // printf("%f %f %f %f %f %f\n", em.x, em.y, em.z,
+        //        edge_orientation_cell(cellIdx, nbhIdx, level) * nx(edgeIdx, level),
+        //        edge_orientation_cell(cellIdx, nbhIdx, level) * ny(edgeIdx, level),
+        //        edge_orientation_cell(cellIdx, nbhIdx, level) * nz(edgeIdx, level));
+
+        printf("%f %f %f %f\n", emLC.x, emLC.y, nxLC(edgeIdx, level), nyLC(edgeIdx, level));
+
+        // printf("%f %f %f %f %f %f\n", em.x, em.y, em.z, nx(edgeIdx, level), ny(edgeIdx, level),
+        //        nz(edgeIdx, level));
+      }
     }
     // explanation: the vector cellMidpoint -> edgeMidpoint is guaranteed to point outside. The
     // dot product checks if the edge normal has the same orientation. edgeMidpoint is arbitrary,
@@ -536,21 +604,21 @@ int main(int argc, char const* argv[]) {
     fclose(fp);
   }
 
-  {
-    FILE* fp = fopen("cvec2gvec.txt", "w+");
-    glm::dvec2 pole{0., 0.5 * M_PI};
-    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+  // {
+  //   FILE* fp = fopen("cvec2gvec.txt", "w+");
+  //   glm::dvec2 pole{0., 0.5 * M_PI};
+  //   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
 
-      glm::dvec3 pCart = edgeMidpoint(mesh, xyz, edgeIdx);
-      glm::dvec3 nrmCart{nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx, level)};
+  //     glm::dvec3 pCart = edgeMidpoint(mesh, xyz, edgeIdx);
+  //     glm::dvec3 nrmCart{nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx, level)};
 
-      glm::dvec2 pos = cvec2gvec({0., 0.}, pCart);
-      glm::dvec2 nrm = cvec2gvec({0., 0.}, nrmCart);
+  //     glm::dvec2 pos = cvec2gvec({0., 0.}, pCart);
+  //     glm::dvec2 nrm = cvec2gvec({0., 0.}, nrmCart);
 
-      fprintf(fp, "%f %f %f %f\n", pos.x, pos.y, nrm.x, nrm.y);
-    }
-    fclose(fp);
-  }
+  //     fprintf(fp, "%f %f %f %f\n", pos.x, pos.y, nrm.x, nrm.y);
+  //   }
+  //   fclose(fp);
+  // }
 
   // {
   //   FILE* fp = fopen("expP.txt", "w+");
