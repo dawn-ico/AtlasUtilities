@@ -16,6 +16,9 @@
 //
 //  UNTESTED, INCOMPLETE
 //
+//    current state: normals at the poles are weird (not orthogonal to mesh projected to tangent
+//    plane). cell midpoints with such normals are printed to console. debug from there!
+//
 //===------------------------------------------------------------------------------------------===//
 
 // Shallow water equation solver as described in "A simple and efficient unstructured finite volume
@@ -350,6 +353,8 @@ int main(int argc, char const* argv[]) {
     }
   }
 
+  dumpMesh4Triplot(mesh, "shallow", xyz);
+
   const int edgesPerVertex = 6;
   const int edgesPerCell = 3;
 
@@ -422,9 +427,9 @@ int main(int argc, char const* argv[]) {
   // initialize geometrical info on edges
   //===------------------------------------------------------------------------------------------===//
   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-    if(edgeIdx == 23120) {
-      printf("!\n");
-    }
+    // if(edgeIdx == 23120) {
+    //   printf("!\n");
+    // }
 
     L(edgeIdx, level) = edgeLength(mesh, xyz, edgeIdx);
     glm::dvec3 n = primalNormal(mesh, xyz, edgeIdx);
@@ -449,7 +454,7 @@ int main(int argc, char const* argv[]) {
     glm::dvec2 eLC = glm::normalize(n1LC - n2LC);
     double check = glm::dot(eLC, nrmLC);
     if(check > 1e-6) {
-      printf("weird normal!\n");
+      printf("%f %f %f\n", p.x, p.y, p.z);
     }
     nxLC(edgeIdx, level) = nrmLC.x;
     nyLC(edgeIdx, level) = nrmLC.y;
