@@ -911,7 +911,7 @@ int main(int argc, char const* argv[]) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs += Fx(edgeIdx, level) * edge_orientation_cell(cellIdx, nbhIdx, level);
         }
-        dqxdt(cellIdx, level) = lhs;
+        dqxdt(cellIdx, level) = lhs / A(cellIdx, level);
         if(use_friction) {
           double lenq = sqrt(qx(cellIdx, level) * qx(cellIdx, level) +
                              qy(cellIdx, level) * qy(cellIdx, level));
@@ -928,7 +928,7 @@ int main(int argc, char const* argv[]) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs += Fy(edgeIdx, level) * edge_orientation_cell(cellIdx, nbhIdx, level);
         }
-        dqydt(cellIdx, level) = lhs;
+        dqydt(cellIdx, level) = lhs / A(cellIdx, level);
         if(use_friction) {
           double lenq = sqrt(qx(cellIdx, level) * qx(cellIdx, level) +
                              qy(cellIdx, level) * qy(cellIdx, level));
@@ -944,7 +944,7 @@ int main(int argc, char const* argv[]) {
         for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs -= hs(edgeIdx, level) * nxLC(edgeIdx, level) *
-                 edge_orientation_cell(cellIdx, nbhIdx, level);
+                 edge_orientation_cell(cellIdx, nbhIdx, level) * L(cellIdx, level);
         }
         Sx(cellIdx, level) = lhs;
       }
@@ -962,7 +962,7 @@ int main(int argc, char const* argv[]) {
             printf("!\n");
           }
           lhs -= hs(edgeIdx, level) * nyLC(edgeIdx, level) *
-                 edge_orientation_cell(cellIdx, nbhIdx, level);
+                 edge_orientation_cell(cellIdx, nbhIdx, level) * L(cellIdx, level);
         }
         Sy(cellIdx, level) = lhs;
       }
@@ -981,12 +981,10 @@ int main(int argc, char const* argv[]) {
 
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       dhdt(cellIdx, level) = dhdt(cellIdx, level) / A(cellIdx, level) * dt;
-      dqxdt(cellIdx, level) = (dqxdt(cellIdx, level) / A(cellIdx, level) -
-                               Grav * (h(cellIdx, level)) * Sx(cellIdx, level)) *
-                              dt;
-      dqydt(cellIdx, level) = (dqydt(cellIdx, level) / A(cellIdx, level) -
-                               Grav * (h(cellIdx, level)) * Sy(cellIdx, level)) *
-                              dt;
+      dqxdt(cellIdx, level) =
+          (dqxdt(cellIdx, level) - Grav * (h(cellIdx, level)) * Sx(cellIdx, level)) * dt;
+      dqydt(cellIdx, level) =
+          (dqydt(cellIdx, level) - Grav * (h(cellIdx, level)) * Sy(cellIdx, level)) * dt;
     }
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       h(cellIdx, level) = h(cellIdx, level) + dhdt(cellIdx, level);
