@@ -59,6 +59,9 @@ static int sgn(T val) {
   return (T(0) < val) - (val < T(0));
 }
 
+const double RADIUS_SPHERE = 1;
+// const double RADIUS_SPHERE = 6378e3;
+
 void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
                       const atlasInterface::Field<double>& field,
                       const std::vector<glm::dvec3>& xyz);
@@ -216,6 +219,11 @@ double cellArea(const atlas::Mesh& mesh, const std::vector<glm::dvec3>& xyz, siz
 // lifted from the ICON source. supposed to
 //   !! Convert cartesian velocity vector @f$(p\_cu, p\_cv, p\_cw)@f$
 //   !! into zonal @f$p\_gu@f$ and meridional @f$g\_v@f$ velocity components
+//
+// this is the trafo here
+// https://en.wikipedia.org/wiki/Geographic_coordinate_conversion#From_ECEF_to_ENU
+// makes sense, east = x, north = y, up = dropped
+//
 // glm::dvec2 cvec2gvec(const glm::dvec2& lonlat, const glm::dvec3& cartvec) {
 //   double p_long = lonlat.x;
 //   double p_lat = lonlat.y;
@@ -254,6 +262,75 @@ glm::dvec2 cvec2gvec(glm::dvec2 lonlat, glm::dvec3 cartvec) {
 //           -z_sinlacoslo * xx.x - z_sinlasinlo * xx.y + cos(position.y) * xx.z};
 // }
 
+// cartesian to lonlat conversion manually "transpiled" from FORTRAN using
+//  ELEMENTAL FUNCTION cc2gc_sphere(p_x) result (p_pos)
+// mo_math_utilities.f90
+glm::dvec2 cartToLonLatIcon(glm::dvec3 cart) {
+  double z_x = cart.x;
+  double z_y = cart.y;
+  double z_z = cart.z;
+
+  double z_r = z_x * z_x + z_y * z_y;
+  z_r = sqrt(z_r);
+
+  glm::dvec2 ret;
+
+  if(fabs(z_r) < std::numeric_limits<double>::epsilon()) {
+    if(z_z > 0.) {
+      ret.y = M_PI_2;
+    } else {
+      ret.y = -1. * M_PI_2;
+    }
+    ret.x = 0.;
+  } else {
+    ret.y = atan2(z_z, z_r);
+    if(fabs(z_x) < std::numeric_limits<double>::epsilon()) {
+      if(z_y >= 0) {
+        ret.x = M_PI_2;
+      } else {
+        ret.x = -M_PI_2;
+      }
+    } else {
+      ret.x = atan2(z_y, z_x);
+    }
+  }
+  return ret;
+}
+
+// https://en.wikipedia.org/wiki/Local_tangent_plane_coordinates
+// this leads to problems in triangles that cross the poles since the orientation of north flips
+glm::dvec2 myprojLTPC_NED(const glm::dvec3& pCart, const glm::dvec3& pRefCart) {
+  // double phi = asin((pRefCart.z) / (RADIUS_SPHERE));
+  // double lambda = atan2(pRefCart.y, pRefCart.x);
+  glm::dvec2 refLL = cartToLonLatIcon(pRefCart);
+  double lambda = refLL.x;
+  double phi = refLL.y;
+
+  // glm uses column major ordering
+  glm::dmat3x3 R(-sin(phi) * cos(lambda), -sin(phi) * sin(lambda), cos(phi), -sin(lambda),
+                 cos(lambda), 0, -cos(phi) * cos(lambda), -cos(phi) * sin(lambda), -sin(phi));
+
+  glm::dvec3 ret = glm::transpose(R) * (pCart - pRefCart); // this is in north, east, down
+  // assert(fabs(ret.z) < 1e-3);                              // expecting this to be small
+  return {ret.y, ret.x}; // would rather use x = east, y = north
+}
+
+glm::dvec2 myprojLTPC_ENU(const glm::dvec3& pCart, const glm::dvec3& pRefCart) {
+  // double phi = asin((pRefCart.z) / (RADIUS_SPHERE));
+  // double lambda = atan2(pRefCart.y, pRefCart.x);
+  glm::dvec2 refLL = cartToLonLatIcon(pRefCart);
+  double lambda = refLL.x;
+  double phi = refLL.y;
+
+  // glm uses column major ordering
+  glm::dmat3x3 R(-sin(lambda), -sin(phi) * cos(lambda), cos(phi) * cos(lambda), cos(lambda),
+                 -sin(phi) * sin(lambda), cos(phi) * sin(lambda), 0., cos(phi), sin(phi));
+
+  glm::dvec3 ret = R * (pRefCart - pCart); // this is in east, north, up
+  // assert(fabs(ret.z) < 1e-3);                              // expecting this to be small
+  return {ret.x, ret.y}; // do not need up
+}
+
 //===-----------------------------------------------------------------------------
 
 int main(int argc, char const* argv[]) {
@@ -285,7 +362,6 @@ int main(int argc, char const* argv[]) {
 
   int k_size = 1;
   const int level = 0;
-  const double R = 1;
 
   // dump a whole bunch of debug output (meant to be visualized using Octave, but gnuplot and the
   // like will certainly work too)
@@ -337,11 +413,11 @@ int main(int argc, char const* argv[]) {
       double lon = lonToRad(lonlat(nodeIdx, atlas::LON));
       double lat = latToRad(lonlat(nodeIdx, atlas::LAT));
 
-      double x = R * cos(lat) * cos(lon);
-      double y = R * cos(lat) * sin(lon);
-      double z = R * sin(lat);
+      double x = RADIUS_SPHERE * cos(lat) * cos(lon);
+      double y = RADIUS_SPHERE * cos(lat) * sin(lon);
+      double z = RADIUS_SPHERE * sin(lat);
 
-      double latRet = asin(z / R);
+      double latRet = asin(z / RADIUS_SPHERE);
       double lonRet = atan2(y, x);
 
       assert(fabs(latRet - lat) < 1e-6);
@@ -426,45 +502,73 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   // initialize geometrical info on edges
   //===------------------------------------------------------------------------------------------===//
-  for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-    // if(edgeIdx == 23120) {
-    //   printf("!\n");
-    // }
+  // {
+  //   FILE* fp = fopen("dbgNorm.txt", "w+");
+  //   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+  //     // if(edgeIdx == 23120) {
+  //     //   printf("!\n");
+  //     // }
 
-    L(edgeIdx, level) = edgeLength(mesh, xyz, edgeIdx);
-    glm::dvec3 n = primalNormal(mesh, xyz, edgeIdx);
-    nx(edgeIdx, level) = n.x;
-    ny(edgeIdx, level) = n.y;
-    nz(edgeIdx, level) = n.z;
+  //     L(edgeIdx, level) = edgeLength(mesh, xyz, edgeIdx);
+  //     glm::dvec3 n = primalNormal(mesh, xyz, edgeIdx);
+  //     nx(edgeIdx, level) = n.x;
+  //     ny(edgeIdx, level) = n.y;
+  //     nz(edgeIdx, level) = n.z;
 
-    const auto& conn = mesh.edges().cell_connectivity();
-    glm::dvec3 c0 = cellCircumcenter(mesh, xyz, conn(edgeIdx, 0));
+  //     const auto& conn = mesh.edges().cell_connectivity();
+  //     glm::dvec3 c0 = cellCircumcenter(mesh, xyz, conn(edgeIdx, 0));
 
-    glm::dvec3 p = edgeMidpoint(mesh, xyz, edgeIdx);
-    auto toLonLat = [R](glm::dvec3 cart) -> glm::dvec2 {
-      return {atan2(cart.y, cart.x), asin(cart.z / R)};
-    };
-    glm::dvec2 pLL = toLonLat(p); // <- ICON version
-    // glm::dvec2 pLL = toLonLat(c0);
+  //     glm::dvec3 p = edgeMidpoint(mesh, xyz, edgeIdx);
+  //     auto toLonLat = [](glm::dvec3 cart) -> glm::dvec2 {
+  //       return {atan2(cart.y, cart.x), asin(cart.z / RADIUS_SPHERE)};
+  //     };
+  //     glm::dvec2 pLL = toLonLat(p); // <- ICON version
+  //     // glm::dvec2 pLL = toLonLat(c0);
 
-    glm::dvec2 nrmLC = glm::normalize(cvec2gvec(pLL, n));
-    auto [n1, n2] = cartEdge(mesh, xyz, edgeIdx);
-    glm::dvec2 n1LC = cvec2gvec(pLL, n1);
-    glm::dvec2 n2LC = cvec2gvec(pLL, n2);
-    glm::dvec2 eLC = glm::normalize(n1LC - n2LC);
-    double check = glm::dot(eLC, nrmLC);
-    if(check > 1e-6) {
-      printf("%f %f %f\n", p.x, p.y, p.z);
+  //     glm::dvec2 nrmLC = glm::normalize(cvec2gvec(pLL, n));
+  //     auto [n1, n2] = cartEdge(mesh, xyz, edgeIdx);
+  //     glm::dvec2 n1LC = cvec2gvec(pLL, n1);
+  //     glm::dvec2 n2LC = cvec2gvec(pLL, n2);
+  //     glm::dvec2 eLC = glm::normalize(n1LC - n2LC);
+  //     double check = glm::dot(eLC, nrmLC);
+  //     if(check > 1e-6) {
+  //       printf("%f %f %f: %e\n", p.x, p.y, p.z, check);
+  //     }
+  //     nxLC(edgeIdx, level) = nrmLC.x;
+  //     nyLC(edgeIdx, level) = nrmLC.y;
+  //     fprintf(fp, "%f %f %f %e\n", n.x, n.y, n.z, check);
+  //   }
+  //   fclose(fp);
+  // }
+
+  {
+    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+      L(edgeIdx, level) = edgeLength(mesh, xyz, edgeIdx);
+      glm::dvec3 n = primalNormal(mesh, xyz, edgeIdx);
+      nx(edgeIdx, level) = n.x;
+      ny(edgeIdx, level) = n.y;
+      nz(edgeIdx, level) = n.z;
+
+      glm::dvec3 p = edgeMidpoint(mesh, xyz, edgeIdx);
+
+      glm::dvec2 nrmLC = myprojLTPC_ENU(p + n, p);
+      nxLC(edgeIdx, level) = nrmLC.x;
+      nyLC(edgeIdx, level) = nrmLC.y;
     }
-    nxLC(edgeIdx, level) = nrmLC.x;
-    nyLC(edgeIdx, level) = nrmLC.y;
   }
 
   {
     FILE* fp = fopen("cc.txt", "w+");
-    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
-      glm::dvec3 pos = cellCircumcenter(mesh, xyz, nodeIdx);
-      fprintf(fp, "%f %f %f\n", pos.x, pos.y, pos.z);
+    int printIter = 1;
+    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+      glm::dvec3 pos = cellCircumcenter(mesh, xyz, cellIdx);
+      if(pos.z < -0.8) {
+        fprintf(fp, "%e %e %e\n", pos.x, pos.y, pos.z);
+        printIter++;
+      }
+      if(cellIdx == 15360) {
+        printf("here!\n");
+      }
     }
     fclose(fp);
   }
@@ -501,80 +605,109 @@ int main(int argc, char const* argv[]) {
 
   dumpCellField("A", mesh, A, level);
 
+  // for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+  //   const atlas::mesh::HybridElements::Connectivity& cellEdgeConnectivity =
+  //       mesh.cells().edge_connectivity();
+
+  //   glm::dvec3 c = cellCircumcenter(mesh, xyz, cellIdx);
+  //   auto toLonLat = [](glm::dvec3 cart) -> glm::dvec2 {
+  //     return {atan2(cart.y, cart.x), asin(cart.z / RADIUS_SPHERE)};
+  //   };
+  //   glm::dvec2 cLL = toLonLat(c);
+  //   glm::dvec2 cLC = cvec2gvec(cLL, c);
+
+  //   const int missingVal = cellEdgeConnectivity.missing_value();
+  //   int numNbh = cellEdgeConnectivity.cols(cellIdx);
+  //   assert(numNbh == edgesPerCell);
+
+  //   if(cellIdx == 300) {
+  //     const auto& conn = mesh.cells().node_connectivity();
+  //     glm::dvec3 p1 = xyz[conn(cellIdx, 0)];
+  //     glm::dvec3 p2 = xyz[conn(cellIdx, 1)];
+  //     glm::dvec3 p3 = xyz[conn(cellIdx, 2)];
+
+  //     glm::dvec2 p1LC = cvec2gvec(cLL, p1);
+  //     glm::dvec2 p2LC = cvec2gvec(cLL, p2);
+  //     glm::dvec2 p3LC = cvec2gvec(cLL, p3);
+
+  //     printf("%f %f\n", cLC.x, cLC.y);
+  //     printf("%f %f %f %f\n", p1LC.x, p2LC.x, p3LC.x, p1LC.x);
+  //     printf("%f %f %f %f\n", p1LC.y, p2LC.y, p3LC.y, p1LC.y);
+
+  //     // printf("%f %f %f %f\n", p1.x, p2.x, p3.x, p1.x);
+  //     // printf("%f %f %f %f\n", p1.y, p2.y, p3.y, p1.y);
+  //     // printf("%f %f %f %f\n", p1.z, p2.z, p3.z, p1.z);
+
+  //     // cvec2gvec(em, em - c)
+  //   }
+
+  //   for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
+  //     int edgeIdx = cellEdgeConnectivity(cellIdx, nbhIdx);
+
+  //     glm::dvec3 em = edgeMidpoint(mesh, xyz, edgeIdx);
+  //     glm::dvec2 emLC = cvec2gvec(cLL, em);
+  //     // glm::dvec2 emLC =
+  //     //     cc2tv(cLL, em); // guaranteed to point to outside since circumcenter is origin
+  //     // glm::dvec2 nrmLC = cc2tv(cLL, {nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx,
+  //     // level)});
+
+  //     // glm::dvec2 toOutsideLC =
+  //     //     cvec2gvec(em, em - c); // guaranteed to point to outside since circumcenter is
+  //     //     origin
+  //     // glm::dvec2 nrmLC =
+  //     //     cvec2gvec(em, {nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx, level)});
+
+  //     // edge_orientation_cell(cellIdx, nbhIdx, level) =
+  //     //     sgn(glm::dot(glm::normalize(toOutsideLC), glm::normalize(nrmLC)));
+
+  //     edge_orientation_cell(cellIdx, nbhIdx, level) = sgn(glm::dot(
+  //         glm::normalize(em - c),
+  //         glm::normalize(glm::dvec3{nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx,
+  //         level)})));
+
+  //     if(cellIdx == 300) {
+  //       // printf("%f %f %f %f %f %f\n", em.x, em.y, em.z,
+  //       //        edge_orientation_cell(cellIdx, nbhIdx, level) * nx(edgeIdx, level),
+  //       //        edge_orientation_cell(cellIdx, nbhIdx, level) * ny(edgeIdx, level),
+  //       //        edge_orientation_cell(cellIdx, nbhIdx, level) * nz(edgeIdx, level));
+
+  //       printf("%f %f %f %f\n", emLC.x, emLC.y, nxLC(edgeIdx, level), nyLC(edgeIdx, level));
+
+  //       // printf("%f %f %f %f %f %f\n", em.x, em.y, em.z, nx(edgeIdx, level), ny(edgeIdx,
+  //       level),
+  //       //        nz(edgeIdx, level));
+  //     }
+  //   }
+  //   // explanation: the vector cellMidpoint -> edgeMidpoint is guaranteed to point outside. The
+  //   // dot product checks if the edge normal has the same orientation. edgeMidpoint is arbitrary,
+  //   // any point on e would work just as well
+  // }
+
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     const atlas::mesh::HybridElements::Connectivity& cellEdgeConnectivity =
         mesh.cells().edge_connectivity();
 
     glm::dvec3 c = cellCircumcenter(mesh, xyz, cellIdx);
-    auto toLonLat = [R](glm::dvec3 cart) -> glm::dvec2 {
-      return {atan2(cart.y, cart.x), asin(cart.z / R)};
-    };
-    glm::dvec2 cLL = toLonLat(c);
-    glm::dvec2 cLC = cvec2gvec(cLL, c);
 
     const int missingVal = cellEdgeConnectivity.missing_value();
     int numNbh = cellEdgeConnectivity.cols(cellIdx);
     assert(numNbh == edgesPerCell);
 
-    if(cellIdx == 300) {
-      const auto& conn = mesh.cells().node_connectivity();
-      glm::dvec3 p1 = xyz[conn(cellIdx, 0)];
-      glm::dvec3 p2 = xyz[conn(cellIdx, 1)];
-      glm::dvec3 p3 = xyz[conn(cellIdx, 2)];
-
-      glm::dvec2 p1LC = cvec2gvec(cLL, p1);
-      glm::dvec2 p2LC = cvec2gvec(cLL, p2);
-      glm::dvec2 p3LC = cvec2gvec(cLL, p3);
-
-      printf("%f %f\n", cLC.x, cLC.y);
-      printf("%f %f %f %f\n", p1LC.x, p2LC.x, p3LC.x, p1LC.x);
-      printf("%f %f %f %f\n", p1LC.y, p2LC.y, p3LC.y, p1LC.y);
-
-      // printf("%f %f %f %f\n", p1.x, p2.x, p3.x, p1.x);
-      // printf("%f %f %f %f\n", p1.y, p2.y, p3.y, p1.y);
-      // printf("%f %f %f %f\n", p1.z, p2.z, p3.z, p1.z);
-
-      // cvec2gvec(em, em - c)
-    }
-
     for(int nbhIdx = 0; nbhIdx < numNbh; nbhIdx++) {
       int edgeIdx = cellEdgeConnectivity(cellIdx, nbhIdx);
 
       glm::dvec3 em = edgeMidpoint(mesh, xyz, edgeIdx);
-      glm::dvec2 emLC = cvec2gvec(cLL, em);
-      // glm::dvec2 emLC =
-      //     cc2tv(cLL, em); // guaranteed to point to outside since circumcenter is origin
-      // glm::dvec2 nrmLC = cc2tv(cLL, {nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx,
-      // level)});
-
-      // glm::dvec2 toOutsideLC =
-      //     cvec2gvec(em, em - c); // guaranteed to point to outside since circumcenter is
-      //     origin
-      // glm::dvec2 nrmLC =
-      //     cvec2gvec(em, {nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx, level)});
-
-      // edge_orientation_cell(cellIdx, nbhIdx, level) =
-      //     sgn(glm::dot(glm::normalize(toOutsideLC), glm::normalize(nrmLC)));
-
-      edge_orientation_cell(cellIdx, nbhIdx, level) = sgn(glm::dot(
-          glm::normalize(em - c),
-          glm::normalize(glm::dvec3{nx(edgeIdx, level), ny(edgeIdx, level), nz(edgeIdx, level)})));
-
-      if(cellIdx == 300) {
-        // printf("%f %f %f %f %f %f\n", em.x, em.y, em.z,
-        //        edge_orientation_cell(cellIdx, nbhIdx, level) * nx(edgeIdx, level),
-        //        edge_orientation_cell(cellIdx, nbhIdx, level) * ny(edgeIdx, level),
-        //        edge_orientation_cell(cellIdx, nbhIdx, level) * nz(edgeIdx, level));
-
-        printf("%f %f %f %f\n", emLC.x, emLC.y, nxLC(edgeIdx, level), nyLC(edgeIdx, level));
-
-        // printf("%f %f %f %f %f %f\n", em.x, em.y, em.z, nx(edgeIdx, level), ny(edgeIdx, level),
-        //        nz(edgeIdx, level));
+      if(cellIdx == 15360) {
+        printf("%f %f %f\n", em.x, em.y, em.z);
       }
+
+      // taking em as reference => normal and toInside have same reference / are in the same coord
+      // system
+      glm::dvec2 toInsideLC = myprojLTPC_ENU(c, em);
+      glm::dvec2 n{nxLC(edgeIdx, level), nyLC(edgeIdx, level)};
+
+      edge_orientation_cell(cellIdx, nbhIdx, level) = -sgn(glm::dot(toInsideLC, n));
     }
-    // explanation: the vector cellMidpoint -> edgeMidpoint is guaranteed to point outside. The
-    // dot product checks if the edge normal has the same orientation. edgeMidpoint is arbitrary,
-    // any point on e would work just as well
   }
 
   //===------------------------------------------------------------------------------------------===//
@@ -595,19 +728,19 @@ int main(int argc, char const* argv[]) {
     qy(cellIdx, level) = 0.;
   }
 
-  {
-    FILE* fp = fopen("ccExp.txt", "w+");
-    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-      glm::dvec2 c = cellCircumcenter2(mesh, cellIdx);
-      double lon = c.x;
-      double lat = c.y;
-      double x = R * cos(lat) * cos(lon);
-      double y = R * cos(lat) * sin(lon);
-      double z = R * sin(lat);
-      fprintf(fp, "%f %f %f\n", x, y, z);
-    }
-    fclose(fp);
-  }
+  // {
+  //   FILE* fp = fopen("ccExp.txt", "w+");
+  //   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+  //     glm::dvec2 c = cellCircumcenter2(mesh, cellIdx);
+  //     double lon = c.x;
+  //     double lat = c.y;
+  //     double x = RADIUS_SPHERE * cos(lat) * cos(lon);
+  //     double y = RADIUS_SPHERE * cos(lat) * sin(lon);
+  //     double z = RADIUS_SPHERE * sin(lat);
+  //     fprintf(fp, "%f %f %f\n", x, y, z);
+  //   }
+  //   fclose(fp);
+  // }
 
   // {
   //   FILE* fp = fopen("cvec2gvec.txt", "w+");
@@ -952,6 +1085,10 @@ void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
       int nodeIdx0 = node_connectivity(cellIdx, 0) + 1;
       int nodeIdx1 = node_connectivity(cellIdx, 1) + 1;
       int nodeIdx2 = node_connectivity(cellIdx, 2) + 1;
+      // if(xyz[nodeIdx0 - 1].z < -0.8 && xyz[nodeIdx1 - 1].z < -0.8 && xyz[nodeIdx2 - 1].z < -0.8)
+      // {
+      //   fprintf(fp, "%d %d %d\n", nodeIdx0, nodeIdx1, nodeIdx2);
+      // }
       fprintf(fp, "%d %d %d\n", nodeIdx0, nodeIdx1, nodeIdx2);
     }
     fclose(fp);
