@@ -295,7 +295,13 @@ Vector AtlasToCartesian::primalNormal(const atlas::Mesh& mesh, int edgeIdx) cons
   int nbhHiCell = edgeCellConnectivity(edgeIdx, 1);
 
   if(nbhLoCell == missingValCell || nbhHiCell == missingValCell) {
-    return {0., 0.};
+    auto [p1, p2] = cartesianEdge(mesh, edgeIdx);
+    double dx = std::get<0>(p1) - std::get<0>(p2);
+    double dy = std::get<1>(p1) - std::get<1>(p2);
+    double l = sqrt(dx * dx + dy * dy);
+    double ex = dx / l;
+    double ey = dy / l;
+    return {ey, -ex};
   }
 
   Point pLoCell = cellCircumcenter(mesh, nbhLoCell);

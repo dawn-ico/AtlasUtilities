@@ -278,11 +278,12 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
-    xm -= 1;
-    ym -= 1;
+    xm -= 0;
+    ym -= 0;
     double v = sqrt(xm * xm + ym * ym);
     h(cellIdx, level) = exp(-5 * v * v) + refHeight;
     // h(cellIdx, level) = refHeight;
+    // h(cellIdx, level) = sin(xm) * sin(ym) + refHeight;
   }
 
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
@@ -353,8 +354,8 @@ int main(int argc, char const* argv[]) {
     if(step > 0 && step % 1000 == 0) {
       for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
         auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
-        xm -= 1;
-        ym -= 1;
+        xm -= 0;
+        ym -= 0;
         double v = sqrt(xm * xm + ym * ym);
         h(cellIdx, level) += exp(-5 * v * v);
       }
@@ -412,7 +413,6 @@ int main(int argc, char const* argv[]) {
     }
 
     // dumpEdgeField("hs", mesh, wrapper, hs, level);
-    // exit(0);
 
     // normal edge velocity
     for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
@@ -463,6 +463,7 @@ int main(int argc, char const* argv[]) {
       Q(it, level) = 0;
       Fx(it, level) = 0;
       Fy(it, level) = 0;
+      // hs(it, level) = refHeight;
     }
 
     // dumpEdgeField("L", mesh, wrapper, L, level);
@@ -488,7 +489,7 @@ int main(int argc, char const* argv[]) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs += Fx(edgeIdx, level) * edge_orientation_cell(cellIdx, nbhIdx, level);
         }
-        dqxdt(cellIdx, level) = lhs;
+        dqxdt(cellIdx, level) = lhs / A(cellIdx, level);
         if(use_friction) {
           double lenq = sqrt(qx(cellIdx, level) * qx(cellIdx, level) +
                              qy(cellIdx, level) * qy(cellIdx, level));
@@ -505,7 +506,7 @@ int main(int argc, char const* argv[]) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs += Fy(edgeIdx, level) * edge_orientation_cell(cellIdx, nbhIdx, level);
         }
-        dqydt(cellIdx, level) = lhs;
+        dqydt(cellIdx, level) = lhs / A(cellIdx, level);
         if(use_friction) {
           double lenq = sqrt(qx(cellIdx, level) * qx(cellIdx, level) +
                              qy(cellIdx, level) * qy(cellIdx, level));
@@ -521,9 +522,9 @@ int main(int argc, char const* argv[]) {
         for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs -= hs(edgeIdx, level) * nx(edgeIdx, level) *
-                 edge_orientation_cell(cellIdx, nbhIdx, level);
+                 edge_orientation_cell(cellIdx, nbhIdx, level) * L(edgeIdx, level);
         }
-        Sx(cellIdx, level) = lhs;
+        Sx(cellIdx, level) = lhs / A(cellIdx, level);
       }
     }
     {
@@ -533,9 +534,9 @@ int main(int argc, char const* argv[]) {
         for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs -= hs(edgeIdx, level) * ny(edgeIdx, level) *
-                 edge_orientation_cell(cellIdx, nbhIdx, level);
+                 edge_orientation_cell(cellIdx, nbhIdx, level) * L(edgeIdx, level);
         }
-        Sy(cellIdx, level) = lhs;
+        Sy(cellIdx, level) = lhs / A(cellIdx, level);
       }
     }
     for(auto it : boundaryCells) {
@@ -545,16 +546,18 @@ int main(int argc, char const* argv[]) {
     // dumpEdgeField("hs", mesh, wrapper, hs, level);
     // dumpCellField("Sx", mesh, wrapper, Sx, level);
     // dumpCellField("Sy", mesh, wrapper, Sy, level);
-    // exit(0);
 
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       dhdt(cellIdx, level) = dhdt(cellIdx, level) / A(cellIdx, level) * dt;
-      dqxdt(cellIdx, level) = (dqxdt(cellIdx, level) / A(cellIdx, level) -
-                               Grav * (h(cellIdx, level)) * Sx(cellIdx, level)) *
-                              dt;
-      dqydt(cellIdx, level) = (dqydt(cellIdx, level) / A(cellIdx, level) -
-                               Grav * (h(cellIdx, level)) * Sy(cellIdx, level)) *
-                              dt;
+      dqxdt(cellIdx, level) =
+          (dqxdt(cellIdx, level) - Grav * (h(cellIdx, level)) * Sx(cellIdx, level)) * dt;
+      dqydt(cellIdx, level) =
+          (dqydt(cellIdx, level) - Grav * (h(cellIdx, level)) * Sy(cellIdx, level)) * dt;
+    }
+    for(auto it : boundaryCells) {
+      dhdt(it, level) = 0.;
+      dqxdt(it, level) = 0.;
+      dqydt(it, level) = 0.;
     }
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
       h(cellIdx, level) = h(cellIdx, level) + dhdt(cellIdx, level);
@@ -566,6 +569,9 @@ int main(int argc, char const* argv[]) {
     // dumpCellField("dhdt", mesh, wrapper, dhdt, level);
     // dumpCellField("dqxdt", mesh, wrapper, dqxdt, level);
     // dumpCellField("dqydt", mesh, wrapper, dqydt, level);
+    // if(step > 1) {
+    //   return 0;
+    // }
 
     // adapt CLF
     // this would probably be in the driver code anyway
@@ -593,9 +599,10 @@ int main(int argc, char const* argv[]) {
     if(step % 20 == 0) {
       char buf[256];
       // sprintf(buf, "out/step_%04d.txt", step);
-      // dumpCellField(buf, mesh, wrapper, h, level);
+
       sprintf(buf, "out/stepH_%04d.txt", step);
-      dumpCellFieldOnNodes(buf, mesh, wrapper, h, level);
+      dumpCellField(buf, mesh, wrapper, h, level);
+      // dumpCellFieldOnNodes(buf, mesh, wrapper, h, level);
     }
     std::cout << "time " << t << " timestep " << step++ << " dt " << dt << "\n";
   }
@@ -683,7 +690,7 @@ void dumpCellField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCar
   FILE* fp = fopen(fname.c_str(), "w+");
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
     auto [xm, ym] = wrapper.cellCircumcenter(mesh, cellIdx);
-    fprintf(fp, "%f %f %f\n", xm, ym, field(cellIdx, level));
+    fprintf(fp, "%f %f %e\n", xm, ym, field(cellIdx, level));
   }
   fclose(fp);
 }
