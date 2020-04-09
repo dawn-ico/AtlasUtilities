@@ -173,6 +173,17 @@ void AllocNbhTable(ConnectivityT& connectivity, int numElements, int nbhPerElem)
 }
 } // namespace
 
+std::vector<double> LoadFieldNetCDF(const std::string& netcdfFName, const std::string& fieldName) {
+  netCDF::NcFile dataFile(netcdfFName.c_str(), netCDF::NcFile::read);
+  return LoadField<double>(dataFile, fieldName);
+}
+
+std::tuple<std::vector<double>, size_t, size_t> Load2DFieldNetCDF(const std::string& netcdfFName,
+                                                                  const std::string& fieldName) {
+  netCDF::NcFile dataFile(netcdfFName.c_str(), netCDF::NcFile::read);
+  return Load2DField<double>(dataFile, fieldName);
+}
+
 std::optional<atlas::Mesh> AtlasMeshFromNetCDFMinimal(const std::string& filename) {
   try {
     atlas::Mesh mesh;

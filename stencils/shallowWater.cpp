@@ -373,6 +373,11 @@ int main(int argc, char const* argv[]) {
   atlas::mesh::actions::build_node_to_edge_connectivity(mesh);
   atlas::mesh::actions::build_element_to_edge_connectivity(mesh);
 
+  std::vector<double> nxNetcdf = LoadFieldNetCDF(argv[1], "zonal_normal_primal_edge");
+  std::vector<double> nyNetcdf = LoadFieldNetCDF(argv[1], "meridional_normal_primal_edge");
+  auto [edge_orientation_cellNetcdf, vertexPerCell, ncells] =
+      Load2DFieldNetCDF(argv[1], "orientation_of_normal");
+
   for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
     const auto& nodeToEdge = mesh.nodes().edge_connectivity();
     const auto& edgeToCell = mesh.edges().cell_connectivity();
@@ -552,8 +557,11 @@ int main(int argc, char const* argv[]) {
       glm::dvec3 p = edgeMidpoint(mesh, xyz, edgeIdx);
 
       glm::dvec2 nrmLC = myprojLTPC_ENU(p + n, p);
-      nxLC(edgeIdx, level) = nrmLC.x;
-      nyLC(edgeIdx, level) = nrmLC.y;
+      // nxLC(edgeIdx, level) = nrmLC.x;
+      // nyLC(edgeIdx, level) = nrmLC.y;
+
+      nxLC(edgeIdx, level) = nxNetcdf[edgeIdx];
+      nyLC(edgeIdx, level) = nyNetcdf[edgeIdx];
     }
   }
 
@@ -706,7 +714,8 @@ int main(int argc, char const* argv[]) {
       glm::dvec2 toInsideLC = myprojLTPC_ENU(c, em);
       glm::dvec2 n{nxLC(edgeIdx, level), nyLC(edgeIdx, level)};
 
-      edge_orientation_cell(cellIdx, nbhIdx, level) = -sgn(glm::dot(toInsideLC, n));
+      edge_orientation_cell(cellIdx, nbhIdx, level) =
+          edge_orientation_cellNetcdf[nbhIdx * ncells + cellIdx];
     }
   }
 
@@ -847,8 +856,8 @@ int main(int argc, char const* argv[]) {
           nxLC(edgeIdx, level) * Ux(edgeIdx, level) + nyLC(edgeIdx, level) * Uy(edgeIdx, level);
     }
 
-    dumpEdgeField("lambda", mesh, xyz, lambda, level);
-    dumpEdgeField("hs", mesh, xyz, hs, level);
+    // dumpEdgeField("lambda", mesh, xyz, lambda, level);
+    // dumpEdgeField("hs", mesh, xyz, hs, level);
 
     // upwinding for edge values
     //  this pattern is currently unsupported
@@ -900,7 +909,7 @@ int main(int argc, char const* argv[]) {
           int edgeIdx = conn(cellIdx, nbhIdx);
           lhs += Q(edgeIdx, level) * edge_orientation_cell(cellIdx, nbhIdx, level);
         }
-        dhdt(cellIdx, level) = lhs;
+        dhdt(cellIdx, level) = lhs / A(cellIdx, level);
       }
     }
     {
@@ -946,7 +955,7 @@ int main(int argc, char const* argv[]) {
           lhs -= hs(edgeIdx, level) * nxLC(edgeIdx, level) *
                  edge_orientation_cell(cellIdx, nbhIdx, level) * L(cellIdx, level);
         }
-        Sx(cellIdx, level) = lhs;
+        Sx(cellIdx, level) = lhs / A(cellIdx, level);
       }
     }
     {
@@ -955,16 +964,16 @@ int main(int argc, char const* argv[]) {
         double lhs = 0.;
         for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
           int edgeIdx = conn(cellIdx, nbhIdx);
-          if(cellIdx == 15360) {
-            double a = hs(edgeIdx, level);
-            double b = nyLC(edgeIdx, level);
-            double c = edge_orientation_cell(cellIdx, nbhIdx, level);
-            printf("!\n");
-          }
+          // if(cellIdx == 15360) {
+          //   double a = hs(edgeIdx, level);
+          //   double b = nyLC(edgeIdx, level);
+          //   double c = edge_orientation_cell(cellIdx, nbhIdx, level);
+          //   printf("!\n");
+          // }
           lhs -= hs(edgeIdx, level) * nyLC(edgeIdx, level) *
                  edge_orientation_cell(cellIdx, nbhIdx, level) * L(cellIdx, level);
         }
-        Sy(cellIdx, level) = lhs;
+        Sy(cellIdx, level) = lhs / A(cellIdx, level);
       }
     }
     // dumpEdgeField("hs", mesh, wrapper, hs, level);
@@ -972,15 +981,15 @@ int main(int argc, char const* argv[]) {
     // dumpCellField("Sy", mesh, wrapper, Sy, level);
     // exit(0);
 
-    dumpCellField("dhdt", mesh, dhdt, level);
-    dumpCellField("dqxdt", mesh, dqxdt, level);
-    dumpCellField("dqydt", mesh, dqydt, level);
-    dumpCellField("Sx", mesh, Sx, level);
-    dumpCellField("Sy", mesh, Sy, level);
-    exit(0);
+    // dumpCellField("dhdt", mesh, dhdt, level);
+    // dumpCellField("dqxdt", mesh, dqxdt, level);
+    // dumpCellField("dqydt", mesh, dqydt, level);
+    // dumpCellField("Sx", mesh, Sx, level);
+    // dumpCellField("Sy", mesh, Sy, level);
+    // exit(0);
 
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-      dhdt(cellIdx, level) = dhdt(cellIdx, level) / A(cellIdx, level) * dt;
+      dhdt(cellIdx, level) = dhdt(cellIdx, level) * dt;
       dqxdt(cellIdx, level) =
           (dqxdt(cellIdx, level) - Grav * (h(cellIdx, level)) * Sx(cellIdx, level)) * dt;
       dqydt(cellIdx, level) =
@@ -1020,11 +1029,11 @@ int main(int argc, char const* argv[]) {
 
     t += dt;
 
-    if(step % 5 == 0) {
+    if(step % 50 == 0) {
       char buf[256];
       // sprintf(buf, "out/step_%04d.txt", step);
-      dumpCellField(buf, mesh, h, level);
       sprintf(buf, "out/stepH_%04d.txt", step);
+      dumpCellField(buf, mesh, h, level);
     }
     std::cout << "time " << t << " timestep " << step++ << " dt " << dt << "\n";
   }

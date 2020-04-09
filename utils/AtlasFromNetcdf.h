@@ -45,3 +45,7 @@
 
 std::optional<atlas::Mesh> AtlasMeshFromNetCDFMinimal(const std::string& filename);
 std::optional<atlas::Mesh> AtlasMeshFromNetCDFComplete(const std::string& filename);
+
+std::vector<double> LoadFieldNetCDF(const std::string& netcdfFName, const std::string& fieldName);
+std::tuple<std::vector<double>, size_t, size_t> Load2DFieldNetCDF(const std::string& netcdfFName,
+                                                                  const std::string& fieldName);
