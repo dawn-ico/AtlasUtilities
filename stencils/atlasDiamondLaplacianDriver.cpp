@@ -66,6 +66,7 @@ int main(int argc, char const* argv[]) {
 
   const int edgesPerVertex = 6;
   const int edgesPerCell = 3;
+  const int verticesInDiamond = 4;
 
   //===------------------------------------------------------------------------------------------===//
   // helper lambdas to readily construct atlas fields and views on one line
@@ -93,9 +94,17 @@ int main(int argc, char const* argv[]) {
   auto [v_F, v] = MakeAtlasField("v", mesh.nodes().size());
 
   //===------------------------------------------------------------------------------------------===//
-  // output fields
+  // input field (field we want to take the laplacian of)
+  //  normal velocity on edges
+  //===------------------------------------------------------------------------------------------===//
+  auto [vn_F, vn] = MakeAtlasField("vn", mesh.edges().size());
+
+  //===------------------------------------------------------------------------------------------===//
+  // output fields (kh_smag(1|2) are "helper" fields to store intermediary results)
   //===------------------------------------------------------------------------------------------===//
   auto [nabla2_F, nabla2] = MakeAtlasField("nabla2", mesh.edges().size());
+  auto [kh_smag_1_F, kh_smag_1] = MakeAtlasField("kh_smag_1", mesh.edges().size());
+  auto [kh_smag_2_F, kh_smag_2] = MakeAtlasField("kh_smag_2", mesh.edges().size());
   auto [kh_smag_F, kh_smag] = MakeAtlasField("kh_smag", mesh.edges().size());
 
   //===------------------------------------------------------------------------------------------===//
@@ -104,13 +113,38 @@ int main(int argc, char const* argv[]) {
   auto [nabla2_sol_F, nabla2_sol] = MakeAtlasField("nabla2", mesh.edges().size());
 
   //===------------------------------------------------------------------------------------------===//
+  // geometrical quantities on edges (vert_vert_lenght is distance between far vertices of diamond)
+  //===------------------------------------------------------------------------------------------===//
+  auto [inv_primal_edge_length_F, inv_primal_edge_length] =
+      MakeAtlasField("inv_primal_edge_length", mesh.edges().size());
+  auto [inv_vert_vert_length_F, inv_vert_vert_length] =
+      MakeAtlasField("inv_vert_vert_length", mesh.edges().size());
+  auto [tangent_orientation_F, tangent_orientation] =
+      MakeAtlasField("tangent_orientation", mesh.edges().size());
+
+  //===------------------------------------------------------------------------------------------===//
+  // smagorinsky coefficient stored on edges (=1 for us, simply there to force the same number of
+  // reads in both ICON and our version)
+  //===------------------------------------------------------------------------------------------===//
+  auto [diff_multfac_smag_F, diff_multfac_smag] =
+      MakeAtlasField("diff_multfac_smag", mesh.edges().size());
+
+  //===------------------------------------------------------------------------------------------===//
+  // tangential and normal components for smagorinsky diffusion
+  //===------------------------------------------------------------------------------------------===//
+  auto [dvt_norm_F, dvt_norm] = MakeAtlasField("dvt_norm", mesh.edges().size());
+  auto [dvt_tang_F, dvt_tang] = MakeAtlasField("dvt_tang", mesh.edges().size());
+
+  //===------------------------------------------------------------------------------------------===//
   // primal and dual normals at vertices (!)
-  //  it is not yet entirely clear how they are defined
+  //  supposedly simply a copy of the edge normal in planar geometry (to be checked)
   //===------------------------------------------------------------------------------------------===//
   auto [primal_normal_x_F, primal_normal_x] =
-      MakeAtlasField("primal_normal_x", mesh.nodes().size());
+      MakeAtlasSparseField("primal_normal_x", mesh.nodes().size(), verticesInDiamond);
   auto [primal_normal_y_F, primal_normal_y] =
-      MakeAtlasField("primal_normal_y", mesh.nodes().size());
-  auto [dual_normal_x_F, dual_normal_x] = MakeAtlasField("dual_normal_x", mesh.nodes().size());
-  auto [dual_normal_y_F, dual_normal_y] = MakeAtlasField("dual_normal_y", mesh.nodes().size());
+      MakeAtlasSparseField("primal_normal_y", mesh.nodes().size(), verticesInDiamond);
+  auto [dual_normal_x_F, dual_normal_x] =
+      MakeAtlasSparseField("dual_normal_x", mesh.nodes().size(), verticesInDiamond);
+  auto [dual_normal_y_F, dual_normal_y] =
+      MakeAtlasSparseField("dual_normal_y", mesh.nodes().size(), verticesInDiamond);
 }
