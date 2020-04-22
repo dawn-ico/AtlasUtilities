@@ -30,7 +30,7 @@
 #include "interfaces/atlas_interface.hpp"
 
 // icon stencil
-#include "generated_iconLaplace.hpp"
+#include "generated_iconDiamondLaplace.hpp"
 
 // atlas utilities
 #include "../utils/AtlasCartesianWrapper.h"
@@ -150,6 +150,12 @@ int main(int argc, char const* argv[]) {
       MakeAtlasSparseField("dual_normal_y", mesh.nodes().size(), verticesInDiamond);
 
   //===------------------------------------------------------------------------------------------===//
+  // sparse dimension intermediary field for diamond
+  //===------------------------------------------------------------------------------------------===//
+  auto [vn_vert_F, vn_vert] =
+      MakeAtlasSparseField("vn_vert", mesh.nodes().size(), verticesInDiamond);
+
+  //===------------------------------------------------------------------------------------------===//
   // input (spherical harmonics) and analytical solutions for div, curl and Laplacian
   //===------------------------------------------------------------------------------------------===//
 
@@ -198,5 +204,25 @@ int main(int argc, char const* argv[]) {
   // initialize sparse geometrical info
   //===------------------------------------------------------------------------------------------===//
   for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+    auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
+
+    for(int nbhIdx = 0; nbhIdx < verticesInDiamond; nbhIdx++) {
+      primal_normal_x(edgeIdx, nbhIdx, level) = nx;
+      primal_normal_y(edgeIdx, nbhIdx, level) = ny;
+      dual_normal_x(edgeIdx, nbhIdx, level) = ny;
+      dual_normal_y(edgeIdx, nbhIdx, level) = -nx;
+    }
   }
+
+  //===------------------------------------------------------------------------------------------===//
+  // smagorinsky fac (dummy)
+  //===------------------------------------------------------------------------------------------===//
+  for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+    diff_multfac_smag(edgeIdx, level) = 1.;
+  }
+  dawn_generated::cxxnaiveico::ICON_laplacian_diamond_stencil<atlasInterface::atlasTag>(
+      mesh, k_size, diff_multfac_smag, tangent_orientation, inv_primal_edge_length,
+      inv_vert_vert_length, u, v, primal_normal_x, primal_normal_y, dual_normal_x, dual_normal_y,
+      vn_vert, vn, dvt_tang, dvt_norm, kh_smag_1, kh_smag_2, kh_smag, nabla2)
+      .run();
 }
