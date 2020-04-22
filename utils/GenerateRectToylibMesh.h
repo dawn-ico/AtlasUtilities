@@ -14,9 +14,9 @@
 
 #pragma once
 
-#include "mylib.hpp"
+#include "toylib.hpp"
 
 // Generate a equilateral structured triangle mesh using our toy library with nx = 2*ny
 // and [xmin, xmax] = [-180,180], [ymin, max] = [-90, 90]
 
-mylib::Grid MylibMeshRect(int ny);
+toylib::Grid toylibMeshRect(int ny);

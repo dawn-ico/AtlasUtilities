@@ -15,6 +15,8 @@
 //===------------------------------------------------------------------------------------------===//
 
 #include "AtlasCartesianWrapper.h"
+#include "../stencils/interfaces/atlas_interface.hpp"
+#include "../stencils/interfaces/unstructured_interface.hpp"
 #include <atlas/util/CoordinateEnums.h>
 
 namespace {
@@ -216,6 +218,7 @@ double AtlasToCartesian::edgeLength(const atlas::Mesh& mesh, int edgeIdx) const 
   auto [p1, p2] = cartesianEdge(mesh, edgeIdx);
   return length(p1, p2);
 }
+
 double AtlasToCartesian::dualEdgeLength(const atlas::Mesh& mesh, int edgeIdx) const {
   const atlas::mesh::HybridElements::Connectivity& edgeCellConnectivity =
       mesh.edges().cell_connectivity();
@@ -235,6 +238,22 @@ double AtlasToCartesian::dualEdgeLength(const atlas::Mesh& mesh, int edgeIdx) co
   Point pHi = cellCircumcenter(mesh, nbhHi);
 
   return length(pLo, pHi);
+}
+
+double AtlasToCartesian::vertVertLength(const atlas::Mesh& mesh, int edgeIdx) const {
+  auto diamondNbh = atlasInterface::getNeighbors(
+      atlasInterface::atlasTag{}, mesh,
+      {dawn::LocationType::Cells, dawn::LocationType::Edges, dawn::LocationType::Vertices},
+      edgeIdx);
+  if(diamondNbh.size() != 4) {
+    return 0.;
+  }
+
+  auto [xn0, yn0] = nodeLocation(diamondNbh[2]);
+  auto [xn1, yn1] = nodeLocation(diamondNbh[3]);
+  double dx = xn0 - xn1;
+  double dy = yn0 - yn1;
+  return (dx * dx + dy * dy);
 }
 
 double AtlasToCartesian::tangentOrientation(const atlas::Mesh& mesh, int edgeIdx) const {

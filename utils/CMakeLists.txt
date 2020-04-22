@@ -13,8 +13,8 @@ add_library(atlasUtilsLib STATIC
   CMakeLists.txt
   GenerateRectAtlasMesh.cpp
   GenerateRectAtlasMesh.h
-  GenerateRectMylibMesh.cpp
-  GenerateRectMylibMesh.h
+  GenerateRectToylibMesh.cpp
+  GenerateRectToylibMesh.h
 )
-target_link_libraries(atlasUtilsLib myLib atlas eckit)
+target_link_libraries(atlasUtilsLib toylib atlas eckit)
 target_include_directories(atlasUtilsLib PUBLIC .)

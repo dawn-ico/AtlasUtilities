@@ -12,11 +12,11 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
-#include "GenerateRectMylibMesh.h"
+#include "GenerateRectToylibMesh.h"
 
-mylib::Grid MylibMeshRect(int ny) {
+toylib::Grid toylibMeshRect(int ny) {
   bool periodic = false;
-  const auto& mesh = mylib::Grid(3 * ny, ny, periodic);
+  const auto& mesh = toylib::Grid(3 * ny, ny, periodic);
 
   double newHeight = (ny - 1) * sqrt(3) / 2.;
   double length = newHeight * 2;
@@ -29,7 +29,7 @@ mylib::Grid MylibMeshRect(int ny) {
     return x > std::get<0>(bblo) && y > std::get<1>(bblo) && x < std::get<0>(bbhi) &&
            y < std::get<1>(bbhi);
   };
-  auto anyInBB = [&](const mylib::Face& f) {
+  auto anyInBB = [&](const toylib::Face& f) {
     for(const auto& v : f.vertices()) {
       if(inBB(v->x(), v->y())) {
         return true;
@@ -38,28 +38,28 @@ mylib::Grid MylibMeshRect(int ny) {
     return false;
   };
 
-  std::vector<mylib::Face> keptCells;
+  std::vector<toylib::Face> keptCells;
   std::vector<int> keptIndices;
   std::copy_if(mesh.faces().begin(), mesh.faces().end(), std::back_inserter(keptCells), anyInBB);
   std::transform(keptCells.begin(), keptCells.end(), std::back_inserter(keptIndices),
-                 [](const mylib::Face& c) { return c.id(); });
-  auto rectMesh = mylib::Grid(mesh, keptIndices);
-  double xMin =
-      std::min_element(rectMesh.vertices().begin(), rectMesh.vertices().end(),
-                       [](const mylib::Vertex& a, const mylib::Vertex& b) { return a.x() < b.x(); })
-          ->x();
-  double xMax =
-      std::max_element(rectMesh.vertices().begin(), rectMesh.vertices().end(),
-                       [](const mylib::Vertex& a, const mylib::Vertex& b) { return a.x() < b.x(); })
-          ->x();
-  double yMin =
-      std::min_element(rectMesh.vertices().begin(), rectMesh.vertices().end(),
-                       [](const mylib::Vertex& a, const mylib::Vertex& b) { return a.y() < b.y(); })
-          ->y();
-  double yMax =
-      std::max_element(rectMesh.vertices().begin(), rectMesh.vertices().end(),
-                       [](const mylib::Vertex& a, const mylib::Vertex& b) { return a.y() < b.y(); })
-          ->y();
+                 [](const toylib::Face& c) { return c.id(); });
+  auto rectMesh = toylib::Grid(mesh, keptIndices);
+  double xMin = std::min_element(
+                    rectMesh.vertices().begin(), rectMesh.vertices().end(),
+                    [](const toylib::Vertex& a, const toylib::Vertex& b) { return a.x() < b.x(); })
+                    ->x();
+  double xMax = std::max_element(
+                    rectMesh.vertices().begin(), rectMesh.vertices().end(),
+                    [](const toylib::Vertex& a, const toylib::Vertex& b) { return a.x() < b.x(); })
+                    ->x();
+  double yMin = std::min_element(
+                    rectMesh.vertices().begin(), rectMesh.vertices().end(),
+                    [](const toylib::Vertex& a, const toylib::Vertex& b) { return a.y() < b.y(); })
+                    ->y();
+  double yMax = std::max_element(
+                    rectMesh.vertices().begin(), rectMesh.vertices().end(),
+                    [](const toylib::Vertex& a, const toylib::Vertex& b) { return a.y() < b.y(); })
+                    ->y();
 
   double lX = xMax - xMin;
   double lY = yMax - yMin;

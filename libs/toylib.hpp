@@ -1,3 +1,17 @@
+//===--------------------------------------------------------------------------------*- C++ -*-===//
+//                          _
+//                         | |
+//                       __| | __ ___      ___ ___
+//                      / _` |/ _` \ \ /\ / / '_  |
+//                     | (_| | (_| |\ V  V /| | | |
+//                      \__,_|\__,_| \_/\_/ |_| |_| - Compiler Toolchain
+//
+//
+//  This file is distributed under the MIT License (MIT).
+//  See LICENSE.txt for details.
+//
+//===------------------------------------------------------------------------------------------===/&
+
 #pragma once
 
 #include <algorithm>
@@ -6,16 +20,24 @@
 #include <functional>
 #include <iostream>
 #include <set>
-#include <unistd.h>
-#include <unordered_map>
 #include <vector>
 
-namespace mylib {
+namespace toylib {
+class ToylibElement {
+protected:
+  ToylibElement() = default;
+  ToylibElement(int id) : id_(id) {}
+  virtual ~ToylibElement() = 0;
+  int id_ = -1;
+
+public:
+  int id() const { return id_; }
+};
+
 class Vertex;
 class Edge;
 class Face;
 class Grid;
-
 //   .---.---.---.
 //   |\ 1|\ 3|\ 5|
 //   | \ | \ | \ |
@@ -24,16 +46,16 @@ class Grid;
 enum face_color { upward = 0, downward = 1 };
 enum edge_color { horizontal = 0, diagonal = 1, vertical = 2 };
 
-class Vertex {
+class Vertex : public ToylibElement {
   friend Grid;
 
 public:
   Vertex() = default;
-  Vertex(double x, double y, int id) : x_(x), y_(y), id_(id) {}
+  Vertex(double x, double y, int id) : ToylibElement(id), x_(x), y_(y) {}
+  ~Vertex() {}
 
   double x() const { return x_; }
   double y() const { return y_; }
-  int id() const { return id_; }
 
   Edge const& edge(size_t i) const;
   Face const& face(size_t i) const;
@@ -46,19 +68,18 @@ public:
   void add_face(Face& f) { faces_.push_back(&f); }
 
 private:
-  int id_;
   double x_;
   double y_;
 
   std::vector<Edge*> edges_;
   std::vector<Face*> faces_;
 };
-class Face {
+class Face : public ToylibElement {
 public:
   Face() = default;
-  Face(int id, face_color color) : id_(id), color_(color) {}
+  Face(int id, face_color color) : ToylibElement(id), color_(color) {}
+  ~Face(){};
 
-  int id() const { return id_; }
   face_color color() const { return color_; }
 
   Vertex const& vertex(size_t i) const;
@@ -72,18 +93,17 @@ public:
   void add_vertex(Vertex& v) { vertices_.push_back(&v); }
 
 private:
-  int id_;
   face_color color_;
 
   std::vector<Edge*> edges_;
   std::vector<Vertex*> vertices_;
 };
-class Edge {
+class Edge : public ToylibElement {
 public:
   Edge() = default;
-  Edge(int id, edge_color color) : id_(id), color_(color) {}
+  Edge(int id, edge_color color) : ToylibElement(id), color_(color) {}
+  ~Edge() {}
 
-  int id() const { return id_; }
   edge_color color() const { return color_; }
 
   Vertex const& vertex(size_t i) const;
@@ -103,7 +123,6 @@ public:
   }
 
 private:
-  int id_ = -1;
   edge_color color_;
 
   std::vector<Vertex*> vertices_;
@@ -112,11 +131,16 @@ private:
 
 class Grid {
 public:
-  // generates a grid of equilateral triangles. grid will be in the shape of a parallelogram.
-  // periodic mode is probably broken
-  Grid(int nx, int ny, bool periodic = false)
+  // generates a grid of right triangles, vertices are in [0,1] x [0,1]
+  //  if lx and/or ly is set, vertices are in [0,lx] x [0,ly]
+  //  if equilat is set and lx=ly equilateral triangles are generated instead of right ones
+  Grid(int nx, int ny, bool periodic = false, double lx = 0., double ly = 0., bool equilat = false)
       : faces_(2 * nx * ny), vertices_(periodic ? nx * ny : (nx + 1) * (ny + 1)),
         edges_(periodic ? 3 * nx * ny : 3 * (nx + 1) * (ny + 1)), nx_(nx), ny_(ny) {
+
+    if(equilat && (lx != ly)) {
+      std::cout << "WARNING: domain not square but equilat set. Result will be skwewed!\n";
+    }
     auto edge_at = [&](int i, int j, int c) -> Edge& {
       if(periodic)
         return edges_.at(3 * (((j + ny) % ny) * nx + ((i + nx) % nx)) + c);
@@ -132,10 +156,8 @@ public:
     auto face_at = [&](int i, int j, int c) -> Face& {
       if(periodic)
         return faces_.at(2 * (((j + ny) % ny) * nx + ((i + nx) % nx)) + c);
-      else {
-        int color = c;
-        return faces_.at(2 * (j * nx + i) + color);
-      }
+      else
+        return faces_.at(2 * (j * nx + i) + c);
     };
 
     for(int j = 0; j < ny; ++j)
@@ -147,8 +169,18 @@ public:
     for(int j = 0; j < (periodic ? ny : ny + 1); ++j)
       for(int i = 0; i < (periodic ? nx : nx + 1); ++i) {
         auto& v = vertex_at(i, j);
-        double px = i - 0.5 * j;
-        double py = j * sqrt(3) / 2;
+        double px = i;
+        double py = j;
+        if(lx != 0.) {
+          px = double(i) / (nx)*lx;
+        }
+        if(ly != 0.) {
+          py = double(j) / (ny)*ly;
+        }
+        if(equilat) {
+          px = px - 0.5 * py;
+          py = py * sqrt(3) / 2.;
+        }
         v = Vertex(px, py, &v - vertices_.data());
       }
 
@@ -262,13 +294,13 @@ public:
         //      5   4
         if(i > 0 || periodic) //
           v.add_edge(edge_at(i - 1, j, edge_color::horizontal));
-        if(i > 0 && j > 0 || periodic) //
+        if((i > 0 && j > 0) || periodic) //
           v.add_edge(edge_at(i - 1, j - 1, edge_color::diagonal));
         if(j > 0 || periodic) //
           v.add_edge(edge_at(i, j - 1, edge_color::vertical));
         if(i < nx || periodic) //
           v.add_edge(edge_at(i, j, edge_color::horizontal));
-        if(i < nx && j < ny || periodic) //
+        if((i < nx && j < ny) || periodic) //
           v.add_edge(edge_at(i, j, edge_color::diagonal));
         if(j < ny || periodic) //
           v.add_edge(edge_at(i, j, edge_color::vertical));
@@ -282,17 +314,17 @@ public:
         //   5  | \ 3
         //      |  \
         //        4
-        if(i > 0 && j > 0 || periodic) {
+        if((i > 0 && j > 0) || periodic) {
           v.add_face(face_at(i - 1, j - 1, face_color::upward));
           v.add_face(face_at(i - 1, j - 1, face_color::downward));
         }
-        if(i < nx && j > 0 || periodic) //
+        if((i < nx && j > 0) || periodic) //
           v.add_face(face_at(i, j - 1, face_color::upward));
-        if(i < nx && j < ny || periodic) {
+        if((i < nx && j < ny) || periodic) {
           v.add_face(face_at(i, j, face_color::downward));
           v.add_face(face_at(i, j, face_color::upward));
         }
-        if(i > 0 && j < ny || periodic) {
+        if((i > 0 && j < ny) || periodic) {
           v.add_face(face_at(i - 1, j, face_color::downward));
         }
       }
@@ -300,6 +332,13 @@ public:
     for(auto const& e : edges_) {
       if(e.id() != -1)
         valid_edges_.push_back(e);
+    }
+
+    // ICON compat attempt
+    for(auto& e : edges_) {
+      if(e.color() == edge_color::diagonal) {
+        e.swap();
+      }
     }
   }
 
@@ -314,6 +353,7 @@ public:
       keptNodeSet.insert(in.faces()[cellIdx].vertex(2).id());
     }
     std::vector<int> keptNodeIndices(keptNodeSet.begin(), keptNodeSet.end());
+
     std::unordered_map<int, int> oldToNewNodeMap;
     for(int idx = 0; idx < keptNodeIndices.size(); idx++) {
       oldToNewNodeMap.emplace(keptNodeIndices[idx], idx);
@@ -430,6 +470,12 @@ public:
       : data_(num_k_levels, std::vector<T>(horizontal_size)) {}
   T& operator()(O const& f, size_t k_level) { return data_[k_level][f.id()]; }
   T const& operator()(O const& f, size_t k_level) const { return data_[k_level][f.id()]; }
+  T& operator()(ToylibElement const* f, size_t k_level) {
+    return data_[k_level][static_cast<const O*>(f)->id()];
+  }
+  T const& operator()(ToylibElement const* f, size_t k_level) const {
+    return data_[k_level][static_cast<const O*>(f)->id()];
+  }
   auto begin() { return data_.begin(); }
   auto end() { return data_.end(); }
 
@@ -463,49 +509,61 @@ template <typename O, typename T>
 class SparseData {
 public:
   SparseData(size_t num_k_levels, size_t dense_size, size_t sparse_size)
-      : data_(num_k_levels, std::vector<std::vector<T>>(dense_size, std::vector<T>(sparse_size))) {}
+      : data_(num_k_levels, std::vector<std::vector<T>>(dense_size, std::vector<T>(sparse_size))),
+        dense_size_(dense_size), sparse_size_(sparse_size) {}
   T& operator()(const O& elem, size_t sparse_idx, size_t k_level) {
+    assert(sparse_idx < sparse_size_);
+    assert(elem.id() < dense_size_);
     return data_[k_level][elem.id()][sparse_idx];
   }
   T const& operator()(const O& elem, size_t sparse_idx, size_t k_level) const {
+    assert(sparse_idx < sparse_size_);
+    assert(elem.id() < dense_size_);
     return data_[k_level][elem.id()][sparse_idx];
+  }
+  T& operator()(ToylibElement const* elem, size_t sparse_idx, size_t k_level) {
+    assert(sparse_idx < sparse_size_);
+    assert(elem->id() < dense_size_);
+    return data_[k_level][static_cast<const O*>(elem)->id()][sparse_idx];
+  }
+  T const& operator()(ToylibElement const* elem, size_t sparse_idx, size_t k_level) const {
+    assert(sparse_idx < sparse_size_);
+    assert(elem->id() < dense_size_);
+    return data_[k_level][static_cast<const O*>(elem)->id()][sparse_idx];
   }
   int k_size() const { return data_.size(); }
 
 private:
   std::vector<std::vector<std::vector<T>>> data_;
+  size_t dense_size_;
+  size_t sparse_size_;
 };
 
 template <typename T>
 class SparseFaceData : public SparseData<Face, T> {
 public:
-  SparseFaceData(Grid const& grid, int k_size, int sparse_size)
+  SparseFaceData(Grid const& grid, int sparse_size, int k_size)
       : SparseData<Face, T>(k_size, grid.faces().size(), sparse_size) {}
 };
 template <typename T>
 class SparseVertexData : public SparseData<Vertex, T> {
 public:
-  SparseVertexData(Grid const& grid, int k_size, int sparse_size)
+  SparseVertexData(Grid const& grid, int sparse_size, int k_size)
       : SparseData<Vertex, T>(k_size, grid.vertices().size(), sparse_size) {}
 };
 template <typename T>
 class SparseEdgeData : public SparseData<Edge, T> {
 public:
-  SparseEdgeData(Grid const& grid, int k_size, int sparse_size)
+  SparseEdgeData(Grid const& grid, int sparse_size, int k_size)
       : SparseData<Edge, T>(k_size, grid.all_edges().size(), sparse_size) {}
 };
 
 std::ostream& toVtk(Grid const& grid, int k_size, std::ostream& os = std::cout);
 std::ostream& toVtk(std::string const& name, FaceData<double> const& f_data, Grid const& grid,
                     std::ostream& os = std::cout);
+std::ostream& toVtk(std::string const& name, EdgeData<double> const& e_data, Grid const& grid,
+                    std::ostream& os = std::cout);
+std::ostream& toVtk(std::string const& name, VertexData<double> const& v_data, Grid const& grid,
+                    std::ostream& os = std::cout);
 
-namespace {
-bool inner_face(Face const& f) {
-  return (f.color() == face_color::downward && f.vertex(0).id() < f.vertex(1).id() &&
-          f.vertex(0).id() < f.vertex(2).id()) ||
-         (f.color() == face_color::upward && f.vertex(1).id() > f.vertex(0).id() &&
-          f.vertex(1).id() > f.vertex(2).id());
-}
-} // namespace
-
-} // namespace mylib
+} // namespace toylib

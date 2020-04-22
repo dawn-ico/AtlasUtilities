@@ -89,6 +89,7 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   // input field (field we want to take the laplacian of)
   //  in the ICON stencil the velocity is reconstructed at vertices (from edges)
+  //  for this test, we simply assign an analytical function
   //===------------------------------------------------------------------------------------------===//
   auto [u_F, u] = MakeAtlasField("u", mesh.nodes().size());
   auto [v_F, v] = MakeAtlasField("v", mesh.nodes().size());
@@ -147,4 +148,55 @@ int main(int argc, char const* argv[]) {
       MakeAtlasSparseField("dual_normal_x", mesh.nodes().size(), verticesInDiamond);
   auto [dual_normal_y_F, dual_normal_y] =
       MakeAtlasSparseField("dual_normal_y", mesh.nodes().size(), verticesInDiamond);
+
+  //===------------------------------------------------------------------------------------------===//
+  // input (spherical harmonics) and analytical solutions for div, curl and Laplacian
+  //===------------------------------------------------------------------------------------------===//
+
+  auto sphericalHarmonic = [](double x, double y) -> std::tuple<double, double> {
+    return {0.25 * sqrt(105. / (2 * M_PI)) * cos(2 * x) * cos(y) * cos(y) * sin(y),
+            0.5 * sqrt(15. / (2 * M_PI)) * cos(x) * cos(y) * sin(y)};
+  };
+  auto analyticalLaplacian = [](double x, double y) -> std::tuple<double, double> {
+    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
+    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
+    return {-4 * c1 * cos(2 * x) * cos(y) * cos(y) * sin(y), -4 * c2 * cos(x) * sin(y) * cos(y)};
+  };
+
+  for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+    auto [x, y] = wrapper.nodeLocation(nodeIdx);
+    auto [ui, vi] = sphericalHarmonic(x, y);
+    u(nodeIdx, level) = ui;
+    v(nodeIdx, level) = vi;
+  }
+  for(int edgeIdx = 0; edgeIdx < mesh.nodes().size(); edgeIdx++) {
+    auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
+    auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
+    auto [ui, vi] = sphericalHarmonic(x, y);
+    vn(edgeIdx, level) = ui * nx + vi * ny;
+  }
+
+  for(int edgeIdx = 0; edgeIdx < mesh.nodes().size(); edgeIdx++) {
+    auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
+    auto [ui, vi] = analyticalLaplacian(x, y);
+    auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
+    nabla2_sol(edgeIdx, level) = ui * nx + vi * ny;
+  }
+
+  //===------------------------------------------------------------------------------------------===//
+  // initialize geometrical info on edges
+  //===------------------------------------------------------------------------------------------===//
+
+  for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+    inv_primal_edge_length(edgeIdx, level) = 1. / wrapper.edgeLength(mesh, edgeIdx);
+    double vert_vert_length = wrapper.vertVertLength(mesh, edgeIdx);
+    inv_vert_vert_length(edgeIdx, level) = (vert_vert_length == 0) ? 0 : 1. / vert_vert_length;
+    tangent_orientation(edgeIdx, level) = wrapper.tangentOrientation(mesh, edgeIdx);
+  }
+
+  //===------------------------------------------------------------------------------------------===//
+  // initialize sparse geometrical info
+  //===------------------------------------------------------------------------------------------===//
+  for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+  }
 }

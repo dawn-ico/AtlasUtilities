@@ -1,6 +1,6 @@
-project(mylibLibrary)
-add_library(myLib STATIC
-                mylib.hpp
-                mylib.cpp
+project(toylibLibrary)
+add_library(toylib STATIC
+                toylib.hpp
+                toylib.cpp
 )
-target_include_directories(myLib PUBLIC .)
+target_include_directories(toylib PUBLIC .)

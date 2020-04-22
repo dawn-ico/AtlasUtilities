@@ -45,6 +45,7 @@ public:
 
   double edgeLength(const atlas::Mesh& mesh, int edgeIdx) const;
   double dualEdgeLength(const atlas::Mesh& mesh, int edgeIdx) const;
+  double vertVertLength(const atlas::Mesh& mesh, int edgeIdx) const;
   double tangentOrientation(const atlas::Mesh& mesh, int edgeIdx) const;
   Vector primalNormal(const atlas::Mesh& mesh, int edgeIdx) const;
   std::tuple<Point, Point> cartesianEdge(const atlas::Mesh& mesh, int edgeIdx) const;
