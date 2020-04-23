@@ -209,7 +209,8 @@ private:
                                                   dawn::LocationType::Cells,
                                                   dawn::LocationType::Vertices},
                   [&](auto& lhs, auto red_loc1, auto const& weight) {
-                    lhs += weight * m_vn_vert(deref(LibTag{}, loc), sparse_dimension_idx0, k + 0);
+                    lhs += weight * (::dawn::float_type)4.0 *
+                           m_vn_vert(deref(LibTag{}, loc), sparse_dimension_idx0, k + 0);
                     sparse_dimension_idx0++;
                     return lhs;
                   },
@@ -226,13 +227,13 @@ private:
           }
           for(auto const& loc : getEdges(LibTag{}, m_mesh)) {
             m_nabla2(deref(LibTag{}, loc), k + 0) =
-                (m_nabla2(deref(LibTag{}, loc), k + 0) -
-                 ((((::dawn::float_type)8.0 * m_vn(deref(LibTag{}, loc), k + 0)) *
-                   (m_inv_primal_edge_length(deref(LibTag{}, loc), k + 0) *
-                    m_inv_primal_edge_length(deref(LibTag{}, loc), k + 0))) -
-                  (((::dawn::float_type)8.0 * m_vn(deref(LibTag{}, loc), k + 0)) *
-                   (m_inv_vert_vert_length(deref(LibTag{}, loc), k + 0) *
-                    m_inv_vert_vert_length(deref(LibTag{}, loc), k + 0)))));
+                m_nabla2(deref(LibTag{}, loc), k + 0) -
+                ((::dawn::float_type)8.0 * m_vn(deref(LibTag{}, loc), k + 0)) *
+                    (m_inv_primal_edge_length(deref(LibTag{}, loc), k + 0) *
+                     m_inv_primal_edge_length(deref(LibTag{}, loc), k + 0)) -
+                ((::dawn::float_type)8.0 * m_vn(deref(LibTag{}, loc), k + 0)) *
+                    (m_inv_vert_vert_length(deref(LibTag{}, loc), k + 0) *
+                     m_inv_vert_vert_length(deref(LibTag{}, loc), k + 0));
           }
         }
       }

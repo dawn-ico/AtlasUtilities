@@ -243,7 +243,7 @@ double AtlasToCartesian::dualEdgeLength(const atlas::Mesh& mesh, int edgeIdx) co
 double AtlasToCartesian::vertVertLength(const atlas::Mesh& mesh, int edgeIdx) const {
   auto diamondNbh = atlasInterface::getNeighbors(
       atlasInterface::atlasTag{}, mesh,
-      {dawn::LocationType::Cells, dawn::LocationType::Edges, dawn::LocationType::Vertices},
+      {dawn::LocationType::Edges, dawn::LocationType::Cells, dawn::LocationType::Vertices},
       edgeIdx);
   if(diamondNbh.size() != 4) {
     return 0.;
@@ -253,7 +253,7 @@ double AtlasToCartesian::vertVertLength(const atlas::Mesh& mesh, int edgeIdx) co
   auto [xn1, yn1] = nodeLocation(diamondNbh[3]);
   double dx = xn0 - xn1;
   double dy = yn0 - yn1;
-  return (dx * dx + dy * dy);
+  return sqrt(dx * dx + dy * dy);
 }
 
 double AtlasToCartesian::tangentOrientation(const atlas::Mesh& mesh, int edgeIdx) const {
