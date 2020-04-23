@@ -12,7 +12,7 @@ namespace cxxnaiveico {
 template <typename LibTag>
 class ICON_laplacian_diamond_stencil {
 private:
-  struct stencil_173 {
+  struct stencil_175 {
     dawn::mesh_t<LibTag> const& m_mesh;
     int m_k_size;
     dawn::edge_field_t<LibTag, double>& m_diff_multfac_smag;
@@ -35,7 +35,7 @@ private:
     dawn::edge_field_t<LibTag, double>& m_nabla2;
 
   public:
-    stencil_173(
+    stencil_175(
         dawn::mesh_t<LibTag> const& mesh, int k_size,
         dawn::edge_field_t<LibTag, double>& diff_multfac_smag,
         dawn::edge_field_t<LibTag, double>& tangent_orientation,
@@ -60,7 +60,7 @@ private:
           m_vn(vn), m_dvt_tang(dvt_tang), m_dvt_norm(dvt_norm), m_kh_smag_1(kh_smag_1),
           m_kh_smag_2(kh_smag_2), m_kh_smag(kh_smag), m_nabla2(nabla2) {}
 
-    ~stencil_173() {}
+    ~stencil_175() {}
 
     void sync_storages() {}
 
@@ -209,8 +209,8 @@ private:
                                                   dawn::LocationType::Cells,
                                                   dawn::LocationType::Vertices},
                   [&](auto& lhs, auto red_loc1, auto const& weight) {
-                    lhs += weight * (::dawn::float_type)4.0 *
-                           m_vn_vert(deref(LibTag{}, loc), sparse_dimension_idx0, k + 0);
+                    lhs += weight * ((::dawn::float_type)4.0 *
+                                     m_vn_vert(deref(LibTag{}, loc), sparse_dimension_idx0, k + 0));
                     sparse_dimension_idx0++;
                     return lhs;
                   },
@@ -227,13 +227,13 @@ private:
           }
           for(auto const& loc : getEdges(LibTag{}, m_mesh)) {
             m_nabla2(deref(LibTag{}, loc), k + 0) =
-                m_nabla2(deref(LibTag{}, loc), k + 0) -
-                ((::dawn::float_type)8.0 * m_vn(deref(LibTag{}, loc), k + 0)) *
-                    (m_inv_primal_edge_length(deref(LibTag{}, loc), k + 0) *
-                     m_inv_primal_edge_length(deref(LibTag{}, loc), k + 0)) -
-                ((::dawn::float_type)8.0 * m_vn(deref(LibTag{}, loc), k + 0)) *
-                    (m_inv_vert_vert_length(deref(LibTag{}, loc), k + 0) *
-                     m_inv_vert_vert_length(deref(LibTag{}, loc), k + 0));
+                (m_nabla2(deref(LibTag{}, loc), k + 0) -
+                 ((((::dawn::float_type)8.0 * m_vn(deref(LibTag{}, loc), k + 0)) *
+                   (m_inv_primal_edge_length(deref(LibTag{}, loc), k + 0) *
+                    m_inv_primal_edge_length(deref(LibTag{}, loc), k + 0))) +
+                  (((::dawn::float_type)8.0 * m_vn(deref(LibTag{}, loc), k + 0)) *
+                   (m_inv_vert_vert_length(deref(LibTag{}, loc), k + 0) *
+                    m_inv_vert_vert_length(deref(LibTag{}, loc), k + 0)))));
           }
         }
       }
@@ -241,7 +241,7 @@ private:
     }
   };
   static constexpr const char* s_name = "ICON_laplacian_diamond_stencil";
-  stencil_173 m_stencil_173;
+  stencil_175 m_stencil_175;
 
 public:
   ICON_laplacian_diamond_stencil(const ICON_laplacian_diamond_stencil&) = delete;
@@ -263,13 +263,13 @@ public:
       dawn::edge_field_t<LibTag, double>& dvt_tang, dawn::edge_field_t<LibTag, double>& dvt_norm,
       dawn::edge_field_t<LibTag, double>& kh_smag_1, dawn::edge_field_t<LibTag, double>& kh_smag_2,
       dawn::edge_field_t<LibTag, double>& kh_smag, dawn::edge_field_t<LibTag, double>& nabla2)
-      : m_stencil_173(mesh, k_size, diff_multfac_smag, tangent_orientation, inv_primal_edge_length,
+      : m_stencil_175(mesh, k_size, diff_multfac_smag, tangent_orientation, inv_primal_edge_length,
                       inv_vert_vert_length, u_vert, v_vert, primal_normal_x, primal_normal_y,
                       dual_normal_x, dual_normal_y, vn_vert, vn, dvt_tang, dvt_norm, kh_smag_1,
                       kh_smag_2, kh_smag, nabla2) {}
 
   void run() {
-    m_stencil_173.run();
+    m_stencil_175.run();
     ;
   }
 };
