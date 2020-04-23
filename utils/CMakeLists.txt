@@ -9,12 +9,13 @@ add_library(atlasUtilsLib STATIC
   AtlasProjectMesh.cpp
   AtlasProjectMesh.h
   AtlasToNetcdf.cpp
-  AtlasToNetcdf.h
-  CMakeLists.txt
+  AtlasToNetcdf.h  
   GenerateRectAtlasMesh.cpp
   GenerateRectAtlasMesh.h
   GenerateRectToylibMesh.cpp
   GenerateRectToylibMesh.h
+  ToylibGeomHelper.cpp
+  ToylibGeomHelper.h
 )
 target_link_libraries(atlasUtilsLib toylib atlas eckit)
 target_include_directories(atlasUtilsLib PUBLIC .)

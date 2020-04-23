@@ -38,51 +38,13 @@
 #include "../utils/GenerateRectAtlasMesh.h"
 #include "interfaces/unstructured_interface.hpp"
 
+// io
+#include "io/atlasIO.h"
+
 std::tuple<double, double, double> MeasureErrors(std::vector<int> indices,
                                                  const atlasInterface::Field<double>& ref,
                                                  const atlasInterface::Field<double>& sol,
                                                  int level);
-
-void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
-                   atlasInterface::Field<double>& field, int level, std::vector<int> edgeList,
-                   std::optional<Orientation> color = std::nullopt);
-
-void dumpMesh4Triplot(const atlas::Mesh& mesh, const std::string prefix,
-                      std::optional<AtlasToCartesian> wrapper) {
-  auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
-  const atlas::mesh::HybridElements::Connectivity& node_connectivity =
-      mesh.cells().node_connectivity();
-
-  {
-    char buf[256];
-    sprintf(buf, "%sT.txt", prefix.c_str());
-    FILE* fp = fopen(buf, "w+");
-    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-      int nodeIdx0 = node_connectivity(cellIdx, 0) + 1;
-      int nodeIdx1 = node_connectivity(cellIdx, 1) + 1;
-      int nodeIdx2 = node_connectivity(cellIdx, 2) + 1;
-      fprintf(fp, "%d %d %d\n", nodeIdx0, nodeIdx1, nodeIdx2);
-    }
-    fclose(fp);
-  }
-
-  {
-    char buf[256];
-    sprintf(buf, "%sP.txt", prefix.c_str());
-    FILE* fp = fopen(buf, "w+");
-    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
-      if(wrapper == std::nullopt) {
-        double x = xy(nodeIdx, atlas::LON);
-        double y = xy(nodeIdx, atlas::LAT);
-        fprintf(fp, "%f %f \n", x, y);
-      } else {
-        auto [x, y] = wrapper.value().nodeLocation(nodeIdx);
-        fprintf(fp, "%f %f \n", x, y);
-      }
-    }
-    fclose(fp);
-  }
-}
 
 int main(int argc, char const* argv[]) {
   // enable floating point exception
@@ -347,21 +309,6 @@ int main(int argc, char const* argv[]) {
   }
 
   return 0;
-}
-
-void dumpEdgeField(const std::string& fname, const atlas::Mesh& mesh, AtlasToCartesian wrapper,
-                   atlasInterface::Field<double>& field, int level, std::vector<int> edgeList,
-                   std::optional<Orientation> color) {
-  FILE* fp = fopen(fname.c_str(), "w+");
-  for(int edgeIdx : edgeList) {
-    if(color.has_value() && wrapper.edgeOrientation(mesh, edgeIdx) != color.value()) {
-      continue;
-    }
-    auto [xm, ym] = wrapper.edgeMidpoint(mesh, edgeIdx);
-    fprintf(fp, "%f %f %f\n", xm, ym,
-            std::isfinite(field(edgeIdx, level)) ? field(edgeIdx, level) : 0.);
-  }
-  fclose(fp);
 }
 
 std::tuple<double, double, double> MeasureErrors(std::vector<int> indices,

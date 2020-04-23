@@ -1,11 +1,13 @@
+add_subdirectory(io)
+
 add_executable(atlasIconLaplaceDriver atlasIconLaplaceDriver.cpp)
-target_link_libraries(atlasIconLaplaceDriver atlas eckit atlasUtilsLib)
+target_link_libraries(atlasIconLaplaceDriver atlas eckit atlasUtilsLib atlasIOLib)
 
 add_executable(atlasIconDiamondLaplacianDriver atlasIconDiamondLaplacianDriver.cpp)
-target_link_libraries(atlasIconDiamondLaplacianDriver atlas eckit atlasUtilsLib)
+target_link_libraries(atlasIconDiamondLaplacianDriver atlas eckit atlasUtilsLib atlasIOLib)
 
 add_executable(atlasShallowWater shallowWater.cpp)
 target_link_libraries(atlasShallowWater atlas eckit atlasUtilsLib)
 
 add_executable(mylibIconLaplaceDriver mylibIconLaplaceDriver.cpp)
-target_link_libraries(mylibIconLaplaceDriver atlasUtilsLib toylib)
+target_link_libraries(mylibIconLaplaceDriver atlasUtilsLib toylib atlasIOLib)
