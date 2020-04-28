@@ -186,7 +186,7 @@ private:
           for(auto const& loc : getEdges(LibTag{}, m_mesh)) {
             m_kh_smag_2(deref(LibTag{}, loc), k + 0) =
                 ((m_kh_smag_2(deref(LibTag{}, loc), k + 0) *
-                  m_inv_vert_vert_length(deref(LibTag{}, loc), k + 0)) -
+                  m_inv_vert_vert_length(deref(LibTag{}, loc), k + 0)) +
                  (m_dvt_tang(deref(LibTag{}, loc), k + 0) *
                   m_inv_primal_edge_length(deref(LibTag{}, loc), k + 0)));
           }
@@ -197,8 +197,8 @@ private:
           for(auto const& loc : getEdges(LibTag{}, m_mesh)) {
             m_kh_smag(deref(LibTag{}, loc), k + 0) =
                 (m_diff_multfac_smag(deref(LibTag{}, loc), k + 0) *
-                 (m_kh_smag_1(deref(LibTag{}, loc), k + 0) +
-                  m_kh_smag_2(deref(LibTag{}, loc), k + 0)));
+                 sqrt(m_kh_smag_1(deref(LibTag{}, loc), k + 0) +
+                      m_kh_smag_2(deref(LibTag{}, loc), k + 0)));
           }
           for(auto const& loc : getEdges(LibTag{}, m_mesh)) {
             {

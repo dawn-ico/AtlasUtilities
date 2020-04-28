@@ -55,8 +55,7 @@ int main(int argc, char const* argv[]) {
     return -1;
   }
   int w = atoi(argv[1]);
-  int k_size = 1;
-  const int level = 0;
+  int k_size = 10;
   double lDomain = M_PI;
 
   // dump a whole bunch of debug output (meant to be visualized using Octave, but gnuplot and the
@@ -93,7 +92,7 @@ int main(int argc, char const* argv[]) {
       [&](const std::string& name, int size,
           int sparseSize) -> std::tuple<atlas::Field, atlasInterface::SparseDimension<double>> {
     atlas::Field field_F{name, atlas::array::DataType::real64(),
-                         atlas::array::make_shape(mesh.edges().size(), k_size, sparseSize)};
+                         atlas::array::make_shape(size, k_size, sparseSize)};
     return {field_F, atlas::array::make_view<double, 3>(field_F)};
   };
 
@@ -152,19 +151,19 @@ int main(int argc, char const* argv[]) {
   //  supposedly simply a copy of the edge normal in planar geometry (to be checked)
   //===------------------------------------------------------------------------------------------===//
   auto [primal_normal_x_F, primal_normal_x] =
-      MakeAtlasSparseField("primal_normal_x", mesh.nodes().size(), verticesInDiamond);
+      MakeAtlasSparseField("primal_normal_x", mesh.edges().size(), verticesInDiamond);
   auto [primal_normal_y_F, primal_normal_y] =
-      MakeAtlasSparseField("primal_normal_y", mesh.nodes().size(), verticesInDiamond);
+      MakeAtlasSparseField("primal_normal_y", mesh.edges().size(), verticesInDiamond);
   auto [dual_normal_x_F, dual_normal_x] =
-      MakeAtlasSparseField("dual_normal_x", mesh.nodes().size(), verticesInDiamond);
+      MakeAtlasSparseField("dual_normal_x", mesh.edges().size(), verticesInDiamond);
   auto [dual_normal_y_F, dual_normal_y] =
-      MakeAtlasSparseField("dual_normal_y", mesh.nodes().size(), verticesInDiamond);
+      MakeAtlasSparseField("dual_normal_y", mesh.edges().size(), verticesInDiamond);
 
   //===------------------------------------------------------------------------------------------===//
   // sparse dimension intermediary field for diamond
   //===------------------------------------------------------------------------------------------===//
   auto [vn_vert_F, vn_vert] =
-      MakeAtlasSparseField("vn_vert", mesh.nodes().size(), verticesInDiamond);
+      MakeAtlasSparseField("vn_vert", mesh.edges().size(), verticesInDiamond);
 
   //===------------------------------------------------------------------------------------------===//
   // input (spherical harmonics) and analytical solutions for div, curl and Laplacian
@@ -189,62 +188,74 @@ int main(int argc, char const* argv[]) {
   auto wave = [](double x, double y) -> double { return sin(x) * sin(y); };
   auto analyticalLaplacianWave = [](double x, double y) -> double { return -2 * sin(x) * sin(y); };
 
-  for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
-    auto [x, y] = wrapper.nodeLocation(nodeIdx);
-    auto [ui, vi] = sphericalHarmonic(x, y);
-    u(nodeIdx, level) = ui;
-    v(nodeIdx, level) = vi;
+  for(int level = 0; level < k_size; level++) {
+    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+      auto [x, y] = wrapper.nodeLocation(nodeIdx);
+      auto [ui, vi] = sphericalHarmonic(x, y);
+      u(nodeIdx, level) = ui;
+      v(nodeIdx, level) = vi;
+    }
   }
-  for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-    auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
-    auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
-    auto [ui, vi] = sphericalHarmonic(x, y);
-    vn(edgeIdx, level) = ui * nx + vi * ny;
+  for(int level = 0; level < k_size; level++) {
+    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+      auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
+      auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
+      auto [ui, vi] = sphericalHarmonic(x, y);
+      // vn(edgeIdx, level) = ui * nx + vi * ny;
+      vn(edgeIdx, level) = ui * 1. + vi * 1.;
+    }
   }
 
-  for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-    auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
-    auto [ui, vi] = analyticalLaplacian(x, y);
-    auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
-    // nabla2_sol(edgeIdx, level) = analyticalLaplacianWave(x, y);
-    nabla2_sol(edgeIdx, level) = ui * nx + vi * ny;
+  for(int level = 0; level < k_size; level++) {
+    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+      auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
+      auto [ui, vi] = analyticalLaplacian(x, y);
+      auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
+      nabla2_sol(edgeIdx, level) = analyticalScalarLaplacian(x, y);
+      // nabla2_sol(edgeIdx, level) = ui * nx + vi * ny;
+    }
   }
 
   //===------------------------------------------------------------------------------------------===//
   // initialize geometrical info on edges
   //===------------------------------------------------------------------------------------------===//
-
-  for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-    inv_primal_edge_length(edgeIdx, level) = 1. / wrapper.edgeLength(mesh, edgeIdx);
-    double vert_vert_length = wrapper.vertVertLength(mesh, edgeIdx);
-    inv_vert_vert_length(edgeIdx, level) = (vert_vert_length == 0) ? 0 : 1. / vert_vert_length;
-    tangent_orientation(edgeIdx, level) = wrapper.tangentOrientation(mesh, edgeIdx);
+  for(int level = 0; level < k_size; level++) {
+    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+      inv_primal_edge_length(edgeIdx, level) = 1. / wrapper.edgeLength(mesh, edgeIdx);
+      double vert_vert_length = wrapper.vertVertLength(mesh, edgeIdx);
+      inv_vert_vert_length(edgeIdx, level) = (vert_vert_length == 0) ? 0 : 1. / vert_vert_length;
+      tangent_orientation(edgeIdx, level) = wrapper.tangentOrientation(mesh, edgeIdx);
+    }
   }
 
   //===------------------------------------------------------------------------------------------===//
   // initialize sparse geometrical info
   //===------------------------------------------------------------------------------------------===//
-  for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-    auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
+  for(int level = 0; level < k_size; level++) {
+    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+      auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
 
-    for(int nbhIdx = 0; nbhIdx < verticesInDiamond; nbhIdx++) {
-      // primal_normal_x(edgeIdx, nbhIdx, level) = 1.;
-      // primal_normal_y(edgeIdx, nbhIdx, level) = 1.;
-      // dual_normal_x(edgeIdx, nbhIdx, level) = 1.;
-      // dual_normal_y(edgeIdx, nbhIdx, level) = 1.;
+      for(int nbhIdx = 0; nbhIdx < verticesInDiamond; nbhIdx++) {
+        primal_normal_x(edgeIdx, nbhIdx, level) = 1.;
+        primal_normal_y(edgeIdx, nbhIdx, level) = 1.;
+        dual_normal_x(edgeIdx, nbhIdx, level) = 1.;
+        dual_normal_y(edgeIdx, nbhIdx, level) = 1.;
 
-      primal_normal_x(edgeIdx, nbhIdx, level) = nx;
-      primal_normal_y(edgeIdx, nbhIdx, level) = ny;
-      dual_normal_x(edgeIdx, nbhIdx, level) = ny;
-      dual_normal_y(edgeIdx, nbhIdx, level) = -nx;
+        // primal_normal_x(edgeIdx, nbhIdx, level) = nx;
+        // primal_normal_y(edgeIdx, nbhIdx, level) = ny;
+        // dual_normal_x(edgeIdx, nbhIdx, level) = ny;
+        // dual_normal_y(edgeIdx, nbhIdx, level) = -nx;
+      }
     }
   }
 
   //===------------------------------------------------------------------------------------------===//
   // smagorinsky fac (dummy)
   //===------------------------------------------------------------------------------------------===//
-  for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-    diff_multfac_smag(edgeIdx, level) = 1.;
+  for(int level = 0; level < k_size; level++) {
+    for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+      diff_multfac_smag(edgeIdx, level) = 1.;
+    }
   }
 
   dawn_generated::cxxnaiveico::ICON_laplacian_diamond_stencil<atlasInterface::atlasTag>(
@@ -256,54 +267,26 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   // dumping a hopefully nice colorful laplacian
   //===------------------------------------------------------------------------------------------===//
-  dumpEdgeField("diamondLaplICONatlas_out.txt", mesh, wrapper, nabla2, level,
-                wrapper.innerEdges(mesh));
-  dumpEdgeField("diamondLaplICONatlas_sol.txt", mesh, wrapper, nabla2_sol, level,
+  dumpEdgeField("diamondLaplICONatlas_out.txt", mesh, wrapper, nabla2, 0, wrapper.innerEdges(mesh));
+  dumpEdgeField("diamondLaplICONatlas_sol.txt", mesh, wrapper, nabla2_sol, 0,
                 wrapper.innerEdges(mesh));
 
   {
-    FILE* fp = fopen("input.txt", "w+");
-    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-      auto cToE = atlasInterface::getNeighbors(
-          atlasInterface::atlasTag{}, mesh, {dawn::LocationType::Cells, dawn::LocationType::Edges},
-          cellIdx);
-      double fx = 0.;
-      double fy = 0.;
-      for(int edgeIdx : cToE) {
-        auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
-        auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
-        auto [ui, vi] = sphericalHarmonic(x, y);
-        fx += ui;
-        fy += vi;
+    FILE* fp = fopen("kh_smag_ref.txt", "w+");
+    for(int level = 0; level < k_size; level++) {
+      for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+        fprintf(fp, "%f ", kh_smag(edgeIdx, level));
       }
-      fprintf(fp, "%f %f\n", fx / 3., fy / 3.);
+      fprintf(fp, "\n");
     }
-  }
-
-  {
-    FILE* fp = fopen("sol.txt", "w+");
-    for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-      auto cToE = atlasInterface::getNeighbors(
-          atlasInterface::atlasTag{}, mesh, {dawn::LocationType::Cells, dawn::LocationType::Edges},
-          cellIdx);
-      double fx = 0.;
-      double fy = 0.;
-      for(int edgeIdx : cToE) {
-        auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
-        auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
-        auto [ui, vi] = analyticalLaplacian(x, y);
-        fx += ui;
-        fy += vi;
-      }
-      fprintf(fp, "%f %f\n", fx / 3., fy / 3.);
-    }
+    fclose(fp);
   }
 
   //===------------------------------------------------------------------------------------------===//
   // measuring errors
   //===------------------------------------------------------------------------------------------===//
-  {
-    auto [Linf, L1, L2] = MeasureErrors(wrapper.innerEdges(mesh), nabla2_sol, nabla2, level);
+  for(int i = 0; i < k_size; i++) {
+    auto [Linf, L1, L2] = MeasureErrors(wrapper.innerEdges(mesh), nabla2_sol, nabla2, i);
     // printf("[lap] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
     printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
   }
@@ -327,4 +310,40 @@ std::tuple<double, double, double> MeasureErrors(std::vector<int> indices,
   L1 /= indices.size();
   L2 = sqrt(L2) / sqrt(indices.size());
   return {Linf, L1, L2};
-}
+} // {
+  //   FILE* fp = fopen("input.txt", "w+");
+  //   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+  //     auto cToE = atlasInterface::getNeighbors(
+  //         atlasInterface::atlasTag{}, mesh, {dawn::LocationType::Cells,
+  //         dawn::LocationType::Edges}, cellIdx);
+  //     double fx = 0.;
+  //     double fy = 0.;
+  //     for(int edgeIdx : cToE) {
+  //       auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
+  //       auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
+  //       auto [ui, vi] = sphericalHarmonic(x, y);
+  //       fx += ui;
+  //       fy += vi;
+  //     }
+  //     fprintf(fp, "%f %f\n", fx / 3., fy / 3.);
+  //   }
+  // }
+
+// {
+//   FILE* fp = fopen("sol.txt", "w+");
+//   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+//     auto cToE = atlasInterface::getNeighbors(
+//         atlasInterface::atlasTag{}, mesh, {dawn::LocationType::Cells,
+//         dawn::LocationType::Edges}, cellIdx);
+//     double fx = 0.;
+//     double fy = 0.;
+//     for(int edgeIdx : cToE) {
+//       auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
+//       auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
+//       auto [ui, vi] = analyticalLaplacian(x, y);
+//       fx += ui;
+//       fy += vi;
+//     }
+//     fprintf(fp, "%f %f\n", fx / 3., fy / 3.);
+//   }
+// }
