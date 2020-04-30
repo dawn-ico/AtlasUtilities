@@ -14,9 +14,6 @@ find_path(NETCDF_CXX4_INCLUDES netcdf
      HINTS ${netcdfcxx4_DIR}/include)
 find_library(NETCDF_CXX4_LIBRARIES netcdf_c++4
      HINTS ${netcdfcxx4_DIR}/lib)
-message("LLLLLLL ${NETCDF_CXX4_INCLUDES} in ${netcdfcxx4_DIR} ${NETCDF_CXX4_LIBRARIES}")
-
-set (NETCDF_LIBRARIES "${NetCDF_libs}" CACHE STRING "All NetCDF libraries required for interface level")
 
 # handle the QUIETLY and REQUIRED arguments and set NETCDF_CXX4_FOUND to TRUE if
 # all listed variables are TRUE

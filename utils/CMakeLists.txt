@@ -17,5 +17,15 @@ add_library(atlasUtilsLib STATIC
   ToylibGeomHelper.cpp
   ToylibGeomHelper.h
 )
-target_link_libraries(atlasUtilsLib toylib atlas eckit)
-target_include_directories(atlasUtilsLib PUBLIC .)
+target_link_libraries(atlasUtilsLib PUBLIC toylib atlas eckit)
+target_link_libraries(atlasUtilsLib PUBLIC ${NETCDF_CXX4_LIBRARIES})
+
+target_include_directories(atlasUtilsLib PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/utils>)
+target_include_directories(atlasUtilsLib PUBLIC ${NETCDF_CXX4_INCLUDES})
+
+
+set_target_properties(atlasUtilsLib PROPERTIES PUBLIC_HEADER 
+     "AtlasCartesianWrapper.h;AtlasExtractSubmesh.h;AtlasFromNetcdf.h;AtlasProjectMesh.h;AtlasToNetcdf.h;GenerateRectAtlasMesh.h;GenerateRectToylibMesh.h;ToylibGeomHelper.h"
+)
+install(TARGETS atlasUtilsLib EXPORT atlasutils PUBLIC_HEADER LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/)
+
