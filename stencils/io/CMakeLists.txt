@@ -6,7 +6,7 @@ add_library(atlasIOLib STATIC
   toylibIO.h
 )
 target_link_libraries(atlasIOLib atlasUtilsLib atlas eckit)
-target_include_directories(atlasIOLib PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/stencils/io>)
+target_include_directories(atlasIOLib PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/stencils/io> $<INSTALL_INTERFACE:include/atlas_utils/stencils/io>)
 
 set_target_properties(atlasIOLib PROPERTIES PUBLIC_HEADER 
      "atlasIO.h;toylibIO.h"
