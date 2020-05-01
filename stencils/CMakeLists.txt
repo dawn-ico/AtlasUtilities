@@ -11,3 +11,7 @@ target_link_libraries(atlasShallowWater atlas eckit atlasUtilsLib)
 
 add_executable(mylibIconLaplaceDriver mylibIconLaplaceDriver.cpp)
 target_link_libraries(mylibIconLaplaceDriver atlasUtilsLib toylib atlasIOLib)
+
+install(TARGETS atlasIconLaplaceDriver atlasIconDiamondLaplacianDriver atlasShallowWater mylibIconLaplaceDriver 
+       EXPORT atlasutils DESTINATION ${CMAKE_INSTALL_PREFIX}/bin/)
+

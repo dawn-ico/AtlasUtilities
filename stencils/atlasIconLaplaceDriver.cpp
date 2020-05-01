@@ -477,7 +477,7 @@ int main(int argc, char const* argv[]) {
       .run();
   clock_t end = clock();
   std::cout << "run time Laplacian at resolution " << w << " "
-            << (end - start) / (double CLOCKS_PER_SEC) << "\n";
+            << (end - start) / ((double)CLOCKS_PER_SEC) << "\n";
 
   if(dbg_out) {
     dumpEdgeField("laplICONatlas_nabla2t1.txt", mesh, wrapper, nabla2t1_vec, level,
