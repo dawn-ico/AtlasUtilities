@@ -27,5 +27,11 @@ target_include_directories(atlasUtilsLib PUBLIC ${NETCDF_CXX4_INCLUDES})
 set_target_properties(atlasUtilsLib PROPERTIES PUBLIC_HEADER 
      "AtlasCartesianWrapper.h;AtlasExtractSubmesh.h;AtlasFromNetcdf.h;AtlasProjectMesh.h;AtlasToNetcdf.h;GenerateRectAtlasMesh.h;GenerateRectToylibMesh.h;ToylibGeomHelper.h"
 )
-install(TARGETS atlasUtilsLib EXPORT atlasutils PUBLIC_HEADER LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/)
+
+install(TARGETS atlasUtilsLib EXPORT atlasutils 
+  PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_PREFIX}/include/ 
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/ 
+  LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/)
+
+
 
