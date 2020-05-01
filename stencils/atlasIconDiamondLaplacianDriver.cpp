@@ -55,7 +55,7 @@ int main(int argc, char const* argv[]) {
     return -1;
   }
   int w = atoi(argv[1]);
-  int k_size = 10;
+  int k_size = 1;
   double lDomain = M_PI;
 
   // dump a whole bunch of debug output (meant to be visualized using Octave, but gnuplot and the
@@ -222,7 +222,9 @@ int main(int argc, char const* argv[]) {
   for(int level = 0; level < k_size; level++) {
     for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
       inv_primal_edge_length(edgeIdx, level) = 1. / wrapper.edgeLength(mesh, edgeIdx);
-      double vert_vert_length = wrapper.vertVertLength(mesh, edgeIdx);
+      // double vert_vert_length = wrapper.vertVertLength(mesh, edgeIdx);
+      // inv_vert_vert_length(edgeIdx, level) = (vert_vert_length == 0) ? 0 : 1. / vert_vert_length;
+      double vert_vert_length = sqrt(3.) * wrapper.edgeLength(mesh, edgeIdx);
       inv_vert_vert_length(edgeIdx, level) = (vert_vert_length == 0) ? 0 : 1. / vert_vert_length;
       tangent_orientation(edgeIdx, level) = wrapper.tangentOrientation(mesh, edgeIdx);
     }
