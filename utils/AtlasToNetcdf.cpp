@@ -56,15 +56,19 @@ bool AtlasToNetCDF(const atlas::Mesh& mesh, const std::string& filename) {
   try {
     netCDF::NcFile dataFile(filename.c_str(), netCDF::NcFile::replace);
 
-    auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
-    auto lonlat = atlas::array::make_view<double, 2>(mesh.nodes().lonlat());
+    atlas::array::ArrayView<const double, 2> xy =
+        atlas::array::make_view<const double, 2>(mesh.nodes().xy());
+    atlas::array::ArrayView<const double, 2> lonlat =
+        atlas::array::make_view<const double, 2>(mesh.nodes().lonlat());
 
-    writeField<double, 2>(dataFile, "x", xy, mesh.nodes().size(), atlas::LON);
-    writeField<double, 2>(dataFile, "y", xy, mesh.nodes().size(), atlas::LAT);
+    writeField<const double, 2>(dataFile, "x", xy, mesh.nodes().size(), atlas::LON);
+    writeField<const double, 2>(dataFile, "y", xy, mesh.nodes().size(), atlas::LAT);
     auto lonToRad = [](double lon) { return lon * (M_PI) / 180; };
     auto latToRad = [](double lat) { return lat * (0.5 * M_PI) / 90; };
-    writeField<double, 2>(dataFile, "vlon", lonlat, mesh.nodes().size(), atlas::LON, lonToRad);
-    writeField<double, 2>(dataFile, "vlat", lonlat, mesh.nodes().size(), atlas::LAT, latToRad);
+    writeField<const double, 2>(dataFile, "vlon", lonlat, mesh.nodes().size(), atlas::LON,
+                                lonToRad);
+    writeField<const double, 2>(dataFile, "vlat", lonlat, mesh.nodes().size(), atlas::LAT,
+                                latToRad);
 
     // keeping DWD standard for naming
     const int nodesPerCell = 3;
