@@ -1,4 +1,5 @@
 add_subdirectory(io)
+add_subdirectory(interfaces)
 
 add_executable(atlasIconLaplaceDriver atlasIconLaplaceDriver.cpp)
 target_link_libraries(atlasIconLaplaceDriver atlas eckit atlasUtilsLib atlasIOLib)

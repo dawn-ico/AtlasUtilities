@@ -27,7 +27,7 @@
 #include "../interfaces/atlas_interface.hpp"
 
 // atlas utilities
-#include "AtlasCartesianWrapper.h"
+#include "../../utils/AtlasCartesianWrapper.h"
 
 void dumpMesh(const atlas::Mesh& m, AtlasToCartesian& wrapper, const std::string& fname);
 void dumpDualMesh(const atlas::Mesh& m, AtlasToCartesian& wrapper, const std::string& fname);
