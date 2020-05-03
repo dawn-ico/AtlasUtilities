@@ -12,8 +12,8 @@
 
 find_path(NETCDF_CXX4_INCLUDES netcdf
      HINTS ${netcdfcxx4_DIR}/include)
-find_library(NETCDF_CXX4_LIBRARIES netcdf_c++4
-     HINTS ${netcdfcxx4_DIR}/lib)
+find_library(NETCDF_CXX4_LIBRARIES libnetcdf_c++.so.4
+     HINTS ${netcdfcxx4_DIR}/)
 
 # handle the QUIETLY and REQUIRED arguments and set NETCDF_CXX4_FOUND to TRUE if
 # all listed variables are TRUE
