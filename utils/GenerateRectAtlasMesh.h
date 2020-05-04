@@ -12,12 +12,12 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
-// Generate a equilateral structured triangle mesh using our Atlas with nx = 2*ny
-// and [xmin, xmax] = [-180,180], [ymin, max] = [-90, 90]
+// Generate equilateral structured triangle meshes in atlas
 
 #pragma once
 
 #include <atlas/mesh.h>
 
 atlas::Mesh AtlasMeshRect(int ny);
+atlas::Mesh AtlasMeshRect(int nx, int ny);
 atlas::Mesh AtlasMeshSquare(int ny);

@@ -81,10 +81,17 @@ void debugDumpMeshRect(const atlas::Mesh& mesh, const std::string prefix) {
   }
 }
 
-atlas::Mesh AtlasMeshRectImpl(int ny, double lengthFac) {
+atlas::Mesh AtlasMeshRectImpl(int nx, int ny) {
   atlas::Grid grid;
-  int nx = 3 * ny;
+  // since the returned triangles will be "cut out" of a skweded domain, we need to generate more
+  // triangles in x direction than we finally need
+  int nx_generate = std::max(3 * nx, 3 * ny);
   const bool dbgOut = false;
+
+  if(nx < 3) {
+    printf("meshes with nx < 3 not supported!\n");
+    assert(false);
+  }
 
   // Create grid
 
@@ -98,8 +105,8 @@ atlas::Mesh AtlasMeshRectImpl(int ny, double lengthFac) {
     using YSpace = atlas::StructuredGrid::YSpace;
 
     // grid = atlas::StructuredGrid{XSpace{xspace}, YSpace{yspace}};
-    auto x = atlas::grid::LinearSpacing(0, nx, nx, false);
-    auto y = atlas::grid::LinearSpacing(0, ny, ny, false);
+    auto x = atlas::grid::LinearSpacing(0, nx_generate + 1, nx_generate + 1, false);
+    auto y = atlas::grid::LinearSpacing(0, ny + 1, ny + 1, false);
     grid = atlas::StructuredGrid{x, y};
   }
 
@@ -124,14 +131,13 @@ atlas::Mesh AtlasMeshRectImpl(int ny, double lengthFac) {
     debugDumpMeshRect(mesh, "equiMesh");
   }
 
-  double newHeight = (ny - 1) * sqrt(3) / 2.;
-  double length = newHeight * lengthFac;
-
+  double length = nx;
   std::vector<int> keep;
   std::tuple<double, double> lo{0., -std::numeric_limits<double>::max()};
-  std::tuple<double, double> hi{length + length / (nx)*0.1, std::numeric_limits<double>::max()};
+  double hix = nx / 2. - 0.6; // 0.6 = grid spacing (0.5) minus 10 percent (of grid spacing)
+  std::tuple<double, double> hi{hix, std::numeric_limits<double>::max()};
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-    if(TriangleInBB(mesh, cellIdx, lo, hi) && !TriangleArea(mesh, cellIdx) < 1e-12) {
+    if(TriangleInBB(mesh, cellIdx, lo, hi) && !(TriangleArea(mesh, cellIdx) < 1e-12)) {
       // in higher resolutions, atlas constructs some degenerate triangles (area = 0) at the bottom
       // of the mesh. I'm not sure if I'm using Atlas wrong here or if this is a bug in Atlas. For
       // now, use the hack above to filter such triangles
@@ -184,5 +190,6 @@ atlas::Mesh AtlasMeshRectImpl(int ny, double lengthFac) {
 
 } // namespace
 
-atlas::Mesh AtlasMeshRect(int ny) { return AtlasMeshRectImpl(ny, 2.0); }
-atlas::Mesh AtlasMeshSquare(int ny) { return AtlasMeshRectImpl(ny, 1.0); }
+atlas::Mesh AtlasMeshRect(int ny) { return AtlasMeshRectImpl(2 * ny, ny); }
+atlas::Mesh AtlasMeshRect(int nx, int ny) { return AtlasMeshRectImpl(nx, ny); }
+atlas::Mesh AtlasMeshSquare(int ny) { return AtlasMeshRectImpl(ny, ny); }
