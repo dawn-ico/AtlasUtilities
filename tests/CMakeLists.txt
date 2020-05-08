@@ -6,3 +6,6 @@ target_link_libraries(TestAtlasProjectMesh atlas eckit atlasUtilsLib ${NETCDF_CX
 
 add_executable(TestAtlasToNetcdf TestAtlasToNetcdf.cpp)
 target_link_libraries(TestAtlasToNetcdf atlas eckit atlasUtilsLib ${NETCDF_CXX4_LIBRARY})
+
+add_executable(TestAtlasMeshGen TestAtlasMeshGen.cpp)
+target_link_libraries(TestAtlasMeshGen atlas eckit atlasUtilsLib ${NETCDF_CXX4_LIBRARY})
