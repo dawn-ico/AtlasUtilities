@@ -119,7 +119,7 @@ int main(int argc, char const* argv[]) {
   const bool dbg_out = false;
   const bool readMeshFromDisk = false;
 
-  atlas::Mesh mesh = AtlasMeshSquare(w);
+  auto [grid, mesh] = AtlasMeshSquare(w);
   atlas::mesh::actions::build_edges(mesh, atlas::util::Config("pole_edges", false));
   atlas::mesh::actions::build_node_to_edge_connectivity(mesh);
   atlas::mesh::actions::build_element_to_edge_connectivity(mesh);

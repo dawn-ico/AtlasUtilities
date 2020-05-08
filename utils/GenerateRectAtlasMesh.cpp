@@ -81,7 +81,7 @@ void debugDumpMeshRect(const atlas::Mesh& mesh, const std::string prefix) {
   }
 }
 
-atlas::Mesh AtlasMeshRectImpl(int ny, double lengthFac) {
+std::tuple<atlas::Grid, atlas::Mesh> AtlasMeshRectImpl(int ny, double lengthFac) {
   atlas::Grid grid;
   int nx = 3 * ny;
   const bool dbgOut = false;
@@ -140,6 +140,7 @@ atlas::Mesh AtlasMeshRectImpl(int ny, double lengthFac) {
   }
 
   auto rectMesh = AtlasExtractSubMeshMinimal(mesh, keep);
+
   if(dbgOut) {
     debugDumpMeshRect(rectMesh, "rectMesh");
   }
@@ -179,10 +180,54 @@ atlas::Mesh AtlasMeshRectImpl(int ny, double lengthFac) {
     debugDumpMeshRect(mesh, "rectMeshScaleMove");
   }
 
-  return rectMesh;
+  return {grid, rectMesh};
 }
 
 } // namespace
 
-atlas::Mesh AtlasMeshRect(int ny) { return AtlasMeshRectImpl(ny, 2.0); }
-atlas::Mesh AtlasMeshSquare(int ny) { return AtlasMeshRectImpl(ny, 1.0); }
+std::tuple<atlas::Grid, atlas::Mesh> AtlasMeshRect(int ny) { return AtlasMeshRectImpl(ny, 2.0); }
+std::tuple<atlas::Grid, atlas::Mesh> AtlasMeshSquare(int ny) { return AtlasMeshRectImpl(ny, 1.0); }
+void generateCell2CellTable(atlas::Mesh& mesh, bool allocate) {
+  auto& cell2cell = mesh.cells().cell_connectivity();
+
+  if(allocate) {
+    cell2cell.add(mesh.cells().size(), 3);
+  }
+
+  auto& cell2edgei = mesh.cells().edge_connectivity();
+  if(cell2edgei.blocks() != 1) {
+    throw std::runtime_error("number of blocks for cell2edge should be one");
+  }
+  auto& cell2edge = cell2edgei.block(0);
+  if(cell2edge.cols() != 3) {
+    throw std::runtime_error("number of edge neighbours of a cell should be ==3");
+  }
+
+  auto& edge2celli = mesh.edges().cell_connectivity();
+  if(edge2celli.blocks() != 1) {
+    throw std::runtime_error("number of blocks for edge2cell should be one");
+  }
+  auto& edge2cell = edge2celli.block(0);
+  if(edge2cell.cols() != 2) {
+    throw std::runtime_error("number of cell neighbours of an edge should be ==2");
+  }
+
+  for(int cidx = 0; cidx < mesh.cells().size(); ++cidx) {
+    // Construct here the cell to cell
+
+    int c2c_idx = 0;
+    for(int ec = 0; ec != cell2edge.cols(); ++ec) {
+      int eidx = cell2edge(cidx, ec);
+      for(int ce = 0; ce != edge2cell.cols(); ++ce) {
+        int neigh_cell_idx = edge2cell(eidx, ce);
+        if(neigh_cell_idx == cidx) {
+          continue;
+        }
+        std::cout << "pr " << cell2cell.cols(cidx) << ":" << c2c_idx << " " << neigh_cell_idx
+                  << std::endl;
+        cell2cell.set(cidx, c2c_idx, neigh_cell_idx);
+        c2c_idx++;
+      }
+    }
+  }
+}

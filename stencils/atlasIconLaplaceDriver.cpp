@@ -105,8 +105,10 @@ int main(int argc, char const* argv[]) {
   const bool readMeshFromDisk = false;
 
   atlas::Mesh mesh;
+
   if(!readMeshFromDisk) {
-    mesh = AtlasMeshRect(w);
+    atlas::Grid grid;
+    std::tie(grid, mesh) = AtlasMeshRect(w);
     atlas::mesh::actions::build_edges(mesh, atlas::util::Config("pole_edges", false));
     atlas::mesh::actions::build_node_to_edge_connectivity(mesh);
     atlas::mesh::actions::build_element_to_edge_connectivity(mesh);
