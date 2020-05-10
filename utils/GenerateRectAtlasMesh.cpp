@@ -6,6 +6,7 @@
 #include <atlas/grid.h>
 #include <atlas/meshgenerator.h>
 #include <atlas/util/CoordinateEnums.h>
+#include <atlas/mesh/actions/BuildEdges.h>
 
 namespace {
 bool TriangleInBB(const atlas::Mesh& mesh, int cellIdx, std::tuple<double, double> bblo,

@@ -1,7 +1,6 @@
 #include "GenerateRectAtlasMesh.h"
 #include <atlas/array.h>
 #include <atlas/grid.h>
-#include <atlas/mesh/actions/BuildEdges.h>
 #include <atlas/meshgenerator.h>
 #include <atlas/output/Gmsh.h>
 #include <atlas/util/CoordinateEnums.h>
@@ -174,17 +173,9 @@ void generateCell2CellTable(atlas::Mesh& mesh, bool allocate) {
 atlas::Mesh AtlasStrIndxMesh(int ny) {
 
   auto mesh = AtlasMeshRect(ny);
-
-  atlas::mesh::actions::build_edges(mesh, atlas::util::Config("pole_edges", false));
-  atlas::mesh::actions::build_node_to_edge_connectivity(mesh);
-  atlas::mesh::actions::build_element_to_edge_connectivity(mesh);
   generateCell2CellTable(mesh, true);
 
   auto meshstr = AtlasMeshRect(ny);
-
-  atlas::mesh::actions::build_edges(meshstr, atlas::util::Config("pole_edges", false));
-  atlas::mesh::actions::build_node_to_edge_connectivity(meshstr);
-  atlas::mesh::actions::build_element_to_edge_connectivity(meshstr);
   generateCell2CellTable(meshstr, true);
 
   atlas::mesh::Cells& cells = meshstr.cells();
