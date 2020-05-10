@@ -109,30 +109,28 @@ int computeEdgeNeighOfCell(atlas::Mesh& mesh, int row_idx, int col_idx, int colo
   return color * njcols + j + row_idx * njcols * 3;
 }
 
-std::tuple<int, int> computeCartCoordStr(int cidx, int jncols) {
-  auto row_idx = cidx / jncols;
+std::tuple<int, int> computeCartCoordStr(int cidx, int nx) {
+  auto row_idx = cidx / nx;
   // cell index offset wrt first cell in the row
   int offset = 0;
   if(row_idx % 2 == 0) {
-    if(cidx % jncols < jncols / 2) {
+    if(cidx % nx < nx / 2) {
       offset = 1;
     }
   } else {
-    if(cidx % jncols >= jncols / 2) {
+    if(cidx % nx >= nx / 2) {
       offset = 1;
     }
   }
-  auto col = (cidx % (jncols / 2)) * 2 + offset;
+  auto col = (cidx % (nx / 2)) * 2 + offset;
 
   return {row_idx, col};
 }
 
-void generateCell2CellTable(atlas::Mesh& mesh, bool allocate) {
+void generateCell2CellTable(atlas::Mesh& mesh) {
   auto& cell2cell = mesh.cells().cell_connectivity();
 
-  if(allocate) {
-    cell2cell.add(mesh.cells().size(), 3);
-  }
+  cell2cell.add(mesh.cells().size(), 3);
 
   auto& cell2edgei = mesh.cells().edge_connectivity();
   if(cell2edgei.blocks() != 1) {
@@ -170,16 +168,19 @@ void generateCell2CellTable(atlas::Mesh& mesh, bool allocate) {
   }
 }
 
-atlas::Mesh AtlasStrIndxMesh(int ny) {
+atlas::Mesh AtlasStrIndxMesh(int nx, int ny) {
 
-  auto mesh = AtlasMeshRect(ny);
+  auto mesh = AtlasMeshRect(nx, ny);
   generateCell2CellTable(mesh, true);
 
-  auto meshstr = AtlasMeshRect(ny);
+  auto meshstr = AtlasMeshRect(nx, ny);
   generateCell2CellTable(meshstr, true);
 
   atlas::mesh::Cells& cells = meshstr.cells();
   // we check some basic properties of the mesh generated
+  if(nx % 2 != 0) {
+    throw std::runtime_error("nx is required to be even integer");
+  }
   if(meshstr.cells().edge_connectivity().blocks() != 1) {
     throw std::runtime_error("c->e connectivy contains more than one block");
   }
@@ -196,55 +197,49 @@ atlas::Mesh AtlasStrIndxMesh(int ny) {
     throw std::runtime_error("c->n connectivy contains more than one block");
   }
 
-  // jncols is number of upward and downward triangles in a row
-  if(cells.size() != ny * ny * 2) {
+  // nx is number of upward and downward triangles in a row
+  if(cells.size() != nx * ny * 2) {
     throw std::runtime_error("number of cells do not match a structured layout");
   }
 
   // number of total edges has an excess (compared to the expected ny*ny*3) of
   // 1 edge per upward triangle at the bottom row and one edge per row (rightmost or leftmost)
   // in order to have complete cells
-  if(meshstr.edges().size() != ny * ny * 3 + ny + ny) {
+  if(meshstr.edges().size() != nx * ny * 3 + nx + ny) {
     throw std::runtime_error("number of edges do not match a structured layout");
   }
-  if(meshstr.nodes().size() != (ny + 1) * (ny + 1)) {
+  if(meshstr.nodes().size() != (nx + 1) * (ny + 1)) {
     throw std::runtime_error("number of nodes do not match a structured layout");
   }
-
-  int inrows = ny;
-  int jncols = ny * 2;
 
   // re-do the cell indexing
   // compute cell->node, cell->edge, cell->cell
   for(int cidx = 0; cidx != mesh.cells().size(); ++cidx) {
-    auto row_idx = cidx / jncols;
+    auto row_idx = cidx / nx;
     // cell index offset wrt first cell in the row
-    auto cidx_norm = cidx % jncols;
+    auto cidx_norm = cidx % nx;
     // new cell index offset wrt first cell in the row
-    int ncidx = getStructuredIdxCell(row_idx, cidx_norm, jncols);
+    int ncidx = getStructuredIdxCell(row_idx, cidx_norm, nx);
 
     replaceCellConnectivity(mesh, meshstr, cidx, ncidx);
 
     auto& ocell2cell = meshstr.cells().cell_connectivity();
-    bool isDownward = cellIsDownwardTriangle(mesh, cidx, jncols, false);
+    bool isDownward = cellIsDownwardTriangle(mesh, cidx, nx, false);
 
     if(isDownward) {
-      ocell2cell.set(
-          ncidx, 0,
-          (row_idx == inrows - 1) ? -1 : getStructuredIdxCell(row_idx + 1, cidx_norm, jncols));
+      ocell2cell.set(ncidx, 0,
+                     (row_idx == ny - 1) ? -1 : getStructuredIdxCell(row_idx + 1, cidx_norm, nx));
       ocell2cell.set(ncidx, 1,
-                     (cidx_norm == 0) ? -1 : getStructuredIdxCell(row_idx, cidx_norm - 1, jncols));
-      ocell2cell.set(
-          ncidx, 2,
-          (cidx_norm == jncols - 1) ? -1 : getStructuredIdxCell(row_idx, cidx_norm + 1, jncols));
+                     (cidx_norm == 0) ? -1 : getStructuredIdxCell(row_idx, cidx_norm - 1, nx));
+      ocell2cell.set(ncidx, 2,
+                     (cidx_norm == nx - 1) ? -1 : getStructuredIdxCell(row_idx, cidx_norm + 1, nx));
     } else {
       ocell2cell.set(ncidx, 0,
-                     (cidx_norm == 0) ? -1 : getStructuredIdxCell(row_idx, cidx_norm - 1, jncols));
-      ocell2cell.set(
-          ncidx, 1,
-          (cidx_norm == jncols - 1) ? -1 : getStructuredIdxCell(row_idx, cidx_norm + 1, jncols));
+                     (cidx_norm == 0) ? -1 : getStructuredIdxCell(row_idx, cidx_norm - 1, nx));
+      ocell2cell.set(ncidx, 1,
+                     (cidx_norm == nx - 1) ? -1 : getStructuredIdxCell(row_idx, cidx_norm + 1, nx));
       ocell2cell.set(ncidx, 2,
-                     (row_idx == 0) ? -1 : getStructuredIdxCell(row_idx - 1, cidx_norm, jncols));
+                     (row_idx == 0) ? -1 : getStructuredIdxCell(row_idx - 1, cidx_norm, nx));
     }
   }
 
@@ -261,26 +256,26 @@ atlas::Mesh AtlasStrIndxMesh(int ny) {
   }
   // re-do the edge indexing
   // re-compute the cell -> edge and edge -> cell connectivity
-  int ghost = inrows * (jncols / 2) * 3;
+  int ghost = ny * (nx / 2) * 3;
   for(int cidx = 0; cidx != meshstr.cells().size(); ++cidx) {
-    bool isDownward = cellIsDownwardTriangle(meshstr, cidx, jncols, true);
+    bool isDownward = cellIsDownwardTriangle(meshstr, cidx, nx, true);
 
-    auto row_idx = cidx / jncols;
+    auto row_idx = cidx / nx;
     // cell index offset wrt first cell in the row
     int offset = 0;
     if(row_idx % 2 == 0) {
-      if(cidx % jncols < jncols / 2) {
+      if(cidx % nx < nx / 2) {
         offset = 1;
       }
     } else {
-      if(cidx % jncols >= jncols / 2) {
+      if(cidx % nx >= nx / 2) {
         offset = 1;
       }
     }
-    auto col = (cidx % (jncols / 2)) * 2 + offset;
+    auto col = (cidx % (nx / 2)) * 2 + offset;
 
     for(int h = 0; h < 3; ++h) {
-      auto edgeIdx = computeEdgeNeighOfCell(meshstr, row_idx, col, h, jncols);
+      auto edgeIdx = computeEdgeNeighOfCell(meshstr, row_idx, col, h, nx);
       if(edgeIdx == -1)
         edgeIdx = ghost++;
 

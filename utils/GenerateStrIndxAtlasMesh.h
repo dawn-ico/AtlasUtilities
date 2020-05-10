@@ -7,4 +7,4 @@ void generateCell2CellTable(atlas::Mesh& mesh, bool allocate);
 // compute a structured index layout mesh
 // Only the following connectivities are supported:
 // c->n, c->e, c->c, e->c
-atlas::Mesh AtlasStrIndxMesh(int ny);
+atlas::Mesh AtlasStrIndxMesh(int nx, int ny);
