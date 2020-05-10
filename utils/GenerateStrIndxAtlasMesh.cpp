@@ -5,6 +5,7 @@
 #include <atlas/output/Gmsh.h>
 #include <atlas/util/CoordinateEnums.h>
 
+namespace {
 // determines if a cells is a downward triangle in the Atlas original indexing layout
 bool cellIsDownwardTriangleOrig(const atlas::Mesh& mesh, int cell_idx) {
   auto ncols = mesh.cells().cell_connectivity().cols(cell_idx);
@@ -167,14 +168,15 @@ void generateCell2CellTable(atlas::Mesh& mesh) {
     }
   }
 }
+}
 
 atlas::Mesh AtlasStrIndxMesh(int nx, int ny) {
 
   auto mesh = AtlasMeshRect(nx, ny);
-  generateCell2CellTable(mesh, true);
+  generateCell2CellTable(mesh);
 
   auto meshstr = AtlasMeshRect(nx, ny);
-  generateCell2CellTable(meshstr, true);
+  generateCell2CellTable(meshstr);
 
   atlas::mesh::Cells& cells = meshstr.cells();
   // we check some basic properties of the mesh generated
@@ -198,17 +200,17 @@ atlas::Mesh AtlasStrIndxMesh(int nx, int ny) {
   }
 
   // nx is number of upward and downward triangles in a row
-  if(cells.size() != nx * ny * 2) {
+  if(cells.size() != nx * ny) {
     throw std::runtime_error("number of cells do not match a structured layout");
   }
 
   // number of total edges has an excess (compared to the expected ny*ny*3) of
   // 1 edge per upward triangle at the bottom row and one edge per row (rightmost or leftmost)
   // in order to have complete cells
-  if(meshstr.edges().size() != nx * ny * 3 + nx + ny) {
+  if(meshstr.edges().size() != (nx/2) * ny * 3 + (nx/2) + ny) {
     throw std::runtime_error("number of edges do not match a structured layout");
   }
-  if(meshstr.nodes().size() != (nx + 1) * (ny + 1)) {
+  if(meshstr.nodes().size() != ((nx/2) + 1) * (ny + 1)) {
     throw std::runtime_error("number of nodes do not match a structured layout");
   }
 
