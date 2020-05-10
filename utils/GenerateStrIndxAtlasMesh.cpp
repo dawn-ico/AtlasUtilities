@@ -188,7 +188,7 @@ atlas::Mesh AtlasStrIndxMesh(int ny) {
   // number of total edges has an excess (compared to the expected ny*ny*3) of
   // 1 edge per upward triangle at the bottom row and one edge per row (rightmost or leftmost)
   // in order to have complete cells
-  if(meshstr.edges().size() != ny * ny * 3 + 4 + 4) {
+  if(meshstr.edges().size() != ny * ny * 3 + ny + ny) {
     throw std::runtime_error("number of edges do not match a structured layout");
   }
   if(meshstr.nodes().size() != (ny + 1) * (ny + 1)) {
