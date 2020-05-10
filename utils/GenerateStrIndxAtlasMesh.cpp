@@ -179,6 +179,22 @@ atlas::Mesh AtlasStrIndxMesh(int ny) {
   generateCell2CellTable(meshstr, true);
 
   atlas::mesh::Cells& cells = meshstr.cells();
+  // we check some basic properties of the mesh generated
+  if(meshstr.cells().edge_connectivity().blocks() != 1) {
+    throw std::runtime_error("c->e connectivy contains more than one block");
+  }
+
+  if(meshstr.edges().cell_connectivity().blocks() != 1) {
+    throw std::runtime_error("e->c connectivy contains more than one block");
+  }
+
+  if(meshstr.cells().cell_connectivity().blocks() != 1) {
+    throw std::runtime_error("c->c connectivy contains more than one block");
+  }
+
+  if(meshstr.cells().node_connectivity().blocks() != 1) {
+    throw std::runtime_error("c->n connectivy contains more than one block");
+  }
 
   // jncols is number of upward and downward triangles in a row
   if(cells.size() != ny * ny * 2) {
@@ -235,6 +251,14 @@ atlas::Mesh AtlasStrIndxMesh(int ny) {
   auto& cell2edges = meshstr.cells().edge_connectivity();
   auto& edge2cells = meshstr.edges().cell_connectivity();
 
+  // we initialize the connectivity since the algorithm
+  // below sets the e->c when there is a neighbour cell
+  // but does not reset to -1 when there is no neighbour
+  for(int eidx = 0; eidx != meshstr.edges().size(); ++eidx) {
+    for(int h = 0; h < 2; ++h) {
+      meshstr.edges().cell_connectivity().set(eidx, h, -1);
+    }
+  }
   // re-do the edge indexing
   // re-compute the cell -> edge and edge -> cell connectivity
   int ghost = inrows * (jncols / 2) * 3;
@@ -263,7 +287,6 @@ atlas::Mesh AtlasStrIndxMesh(int ny) {
       cell2edges.set(cidx, h, edgeIdx);
       edge2cells.set(edgeIdx, isDownward ? 0 : 1, cidx);
     }
-
-    return meshstr;
   }
+  return meshstr;
 }
