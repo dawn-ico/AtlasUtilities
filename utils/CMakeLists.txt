@@ -14,6 +14,8 @@ add_library(atlasUtilsLib STATIC
   GenerateRectAtlasMesh.h
   GenerateRectToylibMesh.cpp
   GenerateRectToylibMesh.h
+  GenerateStrIndxAtlasMesh.cpp
+  GenerateStrIndxAtlasMesh.h
   ToylibGeomHelper.cpp
   ToylibGeomHelper.h
 )
@@ -24,7 +26,7 @@ target_include_directories(atlasUtilsLib PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE
 target_include_directories(atlasUtilsLib PUBLIC ${NETCDF_CXX4_INCLUDES})
 
 set_target_properties(atlasUtilsLib PROPERTIES PUBLIC_HEADER 
-     "AtlasCartesianWrapper.h;AtlasExtractSubmesh.h;AtlasFromNetcdf.h;AtlasProjectMesh.h;AtlasToNetcdf.h;GenerateRectAtlasMesh.h;GenerateRectToylibMesh.h;ToylibGeomHelper.h"
+     "AtlasCartesianWrapper.h;AtlasExtractSubmesh.h;AtlasFromNetcdf.h;AtlasProjectMesh.h;AtlasToNetcdf.h;GenerateRectAtlasMesh.h;GenerateRectToylibMesh.h;GenerateStrIndxAtlasMesh.h;ToylibGeomHelper.h"
 )
 
 install(TARGETS atlasUtilsLib EXPORT atlasutils 

@@ -18,8 +18,7 @@
 
 #include <atlas/mesh.h>
 
-std::tuple<atlas::Grid, atlas::Mesh> AtlasMeshRect(int ny);
-std::tuple<atlas::Grid, atlas::Mesh> AtlasMeshRect(int nx, int ny);
-std::tuple<atlas::Grid, atlas::Mesh> AtlasMeshSquare(int ny);
+atlas::Mesh AtlasMeshRect(int ny);
+atlas::Mesh AtlasMeshRect(int nx, int ny);
+atlas::Mesh AtlasMeshSquare(int ny);
 void generateCell2CellTable(atlas::Mesh& mesh, bool allocate);
-
