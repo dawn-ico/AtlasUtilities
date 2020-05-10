@@ -12,8 +12,14 @@
 
 find_path(NETCDF_CXX4_INCLUDES netcdf
      HINTS ${netcdfcxx4_DIR}/include)
-find_library(NETCDF_CXX4_LIBRARIES libnetcdf-cxx4.so
-     HINTS ${netcdfcxx4_DIR}/lib)
+find_library(NETCDF_CXX4_LIBRARIES libnetcdf_c++4.so
+     PATH ${netcdfcxx4_DIR}/lib)
+# ubuntu provides a different library name as tsa, therefore
+# we try to find any of the two possibilities
+if(NOT NETCDF_CXX4_LIBRARIES)
+  find_library(NETCDF_CXX4_LIBRARIES libnetcdf-cxx4.so
+     PATH ${netcdfcxx4_DIR}/lib)
+endif()
 
 # handle the QUIETLY and REQUIRED arguments and set NETCDF_CXX4_FOUND to TRUE if
 # all listed variables are TRUE
