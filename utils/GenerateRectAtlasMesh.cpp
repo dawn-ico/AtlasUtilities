@@ -186,6 +186,10 @@ atlas::Mesh AtlasMeshRectImpl(int nx, int ny) {
     debugDumpMeshRect(mesh, "rectMeshScaleMove");
   }
 
+  atlas::mesh::actions::build_edges(rectMesh, atlas::util::Config("pole_edges", false));
+  atlas::mesh::actions::build_node_to_edge_connectivity(rectMesh);
+  atlas::mesh::actions::build_element_to_edge_connectivity(rectMesh);
+
   return rectMesh;
 }
 
