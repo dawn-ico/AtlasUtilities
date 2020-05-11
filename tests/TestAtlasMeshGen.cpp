@@ -32,7 +32,7 @@
 int main(int argc, char const* argv[]) {
   for(int nx = 3; nx < 30; nx++) {
     for(int ny = 1; ny < 30; ny++) {
-      atlas::Mesh m = AtlasMeshRect(nx, ny);
+      auto m = AtlasMeshRect(nx, ny);
       if(m.cells().size() != nx * ny) {
         printf("mesh size: %d expected: %d nx: %d ny: %d\n", m.cells().size(), nx * ny, nx, ny);
         assert(false);

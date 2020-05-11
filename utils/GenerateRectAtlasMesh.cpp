@@ -6,6 +6,7 @@
 #include <atlas/grid.h>
 #include <atlas/meshgenerator.h>
 #include <atlas/util/CoordinateEnums.h>
+#include <atlas/mesh/actions/BuildEdges.h>
 
 namespace {
 bool TriangleInBB(const atlas::Mesh& mesh, int cellIdx, std::tuple<double, double> bblo,
@@ -146,6 +147,7 @@ atlas::Mesh AtlasMeshRectImpl(int nx, int ny) {
   }
 
   auto rectMesh = AtlasExtractSubMeshMinimal(mesh, keep);
+
   if(dbgOut) {
     debugDumpMeshRect(rectMesh, "rectMesh");
   }
@@ -184,6 +186,10 @@ atlas::Mesh AtlasMeshRectImpl(int nx, int ny) {
   if(dbgOut) {
     debugDumpMeshRect(mesh, "rectMeshScaleMove");
   }
+
+  atlas::mesh::actions::build_edges(rectMesh, atlas::util::Config("pole_edges", false));
+  atlas::mesh::actions::build_node_to_edge_connectivity(rectMesh);
+  atlas::mesh::actions::build_element_to_edge_connectivity(rectMesh);
 
   return rectMesh;
 }
