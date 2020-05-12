@@ -46,6 +46,11 @@ std::tuple<double, double, double> MeasureErrors(std::vector<int> indices,
                                                  const atlasInterface::Field<double>& sol,
                                                  int level);
 
+std::tuple<double, double, double> MeasureErrors(std::vector<int> indices,
+                                                 const std::vector<double>& ref,
+                                                 const atlasInterface::Field<double>& sol,
+                                                 int level);
+
 int main(int argc, char const* argv[]) {
   // enable floating point exception
   // feenableexcept(FE_INVALID | FE_OVERFLOW);
@@ -60,23 +65,39 @@ int main(int argc, char const* argv[]) {
 
   // dump a whole bunch of debug output (meant to be visualized using Octave, but gnuplot and the
   // like will certainly work too)
-  const bool dbg_out = false;
-  const bool readMeshFromDisk = false;
+  const bool dbg_out = true;
+  const bool readMeshFromDisk = true;
 
   atlas::Mesh mesh;
-  mesh = AtlasMeshSquare(w);
-  atlas::mesh::actions::build_edges(mesh, atlas::util::Config("pole_edges", false));
-  atlas::mesh::actions::build_node_to_edge_connectivity(mesh);
-  atlas::mesh::actions::build_element_to_edge_connectivity(mesh);
+  if(!readMeshFromDisk) {
+    mesh = AtlasMeshSquare(w);
+    atlas::mesh::actions::build_edges(mesh, atlas::util::Config("pole_edges", false));
+    atlas::mesh::actions::build_node_to_edge_connectivity(mesh);
+    atlas::mesh::actions::build_element_to_edge_connectivity(mesh);
+  } else {
+    mesh = *AtlasMeshFromNetCDFComplete("grid.nc");
+    auto lonlat = atlas::array::make_view<double, 2>(mesh.nodes().lonlat());
+    auto xy = atlas::array::make_view<double, 2>(mesh.nodes().xy());
+
+    auto lonToRad = [](double rad) { return rad * (0.5 * M_PI) / 90; };
+    auto latToRad = [](double rad) { return rad * (M_PI) / 180; };
+
+    for(int nodeIdx = 0; nodeIdx < mesh.nodes().size(); nodeIdx++) {
+      xy(nodeIdx, atlas::LON) = lonToRad(lonlat(nodeIdx, atlas::LON));
+      xy(nodeIdx, atlas::LAT) = latToRad(lonlat(nodeIdx, atlas::LAT));
+    }
+  }
 
   // wrapper with various atlas helper functions
-  AtlasToCartesian wrapper(mesh, true);
+  AtlasToCartesian wrapper(mesh, !readMeshFromDisk);
 
   const int edgesPerVertex = 6;
   const int edgesPerCell = 3;
   const int verticesInDiamond = 4;
 
-  dumpMesh4Triplot(mesh, "atlas", wrapper);
+  if(dbg_out) {
+    dumpMesh4Triplot(mesh, "atlas", wrapper);
+  }
 
   //===------------------------------------------------------------------------------------------===//
   // helper lambdas to readily construct atlas fields and views on one line
@@ -206,6 +227,10 @@ int main(int argc, char const* argv[]) {
     }
   }
 
+  if(dbg_out) {
+    dumpEdgeField("diamondLaplICONatlas_in.txt", mesh, wrapper, vn, 0, wrapper.innerEdges(mesh));
+  }
+
   for(int level = 0; level < k_size; level++) {
     for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
       auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
@@ -222,12 +247,17 @@ int main(int argc, char const* argv[]) {
   for(int level = 0; level < k_size; level++) {
     for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
       inv_primal_edge_length(edgeIdx, level) = 1. / wrapper.edgeLength(mesh, edgeIdx);
-      // double vert_vert_length = wrapper.vertVertLength(mesh, edgeIdx);
-      // inv_vert_vert_length(edgeIdx, level) = (vert_vert_length == 0) ? 0 : 1. / vert_vert_length;
-      double vert_vert_length = sqrt(3.) * wrapper.edgeLength(mesh, edgeIdx);
+      double vert_vert_length = wrapper.vertVertLength(mesh, edgeIdx);
       inv_vert_vert_length(edgeIdx, level) = (vert_vert_length == 0) ? 0 : 1. / vert_vert_length;
       tangent_orientation(edgeIdx, level) = wrapper.tangentOrientation(mesh, edgeIdx);
     }
+  }
+
+  if(dbg_out) {
+    dumpEdgeField("diamondLaplICONatlas_edgeLength.txt", mesh, wrapper, inv_primal_edge_length, 0,
+                  wrapper.innerEdges(mesh));
+    dumpEdgeField("diamondLaplICONatlas_vertVertLength.txt", mesh, wrapper, inv_vert_vert_length, 0,
+                  wrapper.innerEdges(mesh));
   }
 
   //===------------------------------------------------------------------------------------------===//
@@ -287,10 +317,49 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   // measuring errors
   //===------------------------------------------------------------------------------------------===//
-  for(int i = 0; i < k_size; i++) {
-    auto [Linf, L1, L2] = MeasureErrors(wrapper.innerEdges(mesh), nabla2_sol, nabla2, i);
-    // printf("[lap] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
-    printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+
+  // the current test case, or rather, the analytical solution (to the current test case) is only
+  // valid if the equilat triangles are aligned with the x/y axis. this is the case for the atlas
+  // mesh generator, but not necessarily for imported netcdf meshes. for netcdf meshes the current
+  // best bet is to simply compare against a manual computation of the same FD laplacian
+  //
+
+  if(!readMeshFromDisk) {
+    for(int i = 0; i < k_size; i++) {
+      auto [Linf, L1, L2] = MeasureErrors(wrapper.innerEdges(mesh), nabla2_sol, nabla2, i);
+      // printf("[lap] dx: %e L_inf: %e L_1: %e L_2: %e\n", 180. / w, Linf, L1, L2);
+      printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+    }
+  } else {
+    std::vector<double> diamondManual(mesh.edges().size());
+    for(int level = 0; level < k_size; level++) {
+      for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
+        auto diamondNbh = atlasInterface::getNeighbors(
+            atlasInterface::atlasTag{}, mesh,
+            {dawn::LocationType::Edges, dawn::LocationType::Cells, dawn::LocationType::Vertices},
+            edgeIdx);
+
+        if(diamondNbh.size() < 4) {
+          diamondManual[edgeIdx] = 0.;
+        }
+
+        std::vector<double> diamondVals = {u(diamondNbh[0], level) + v(diamondNbh[0], level),
+                                           u(diamondNbh[1], level) + v(diamondNbh[1], level),
+                                           u(diamondNbh[2], level) + v(diamondNbh[2], level),
+                                           u(diamondNbh[3], level) + v(diamondNbh[3], level)};
+        double hx = 0.5 * wrapper.edgeLength(mesh, edgeIdx);
+        double hy = 0.5 * wrapper.vertVertLength(mesh, edgeIdx);
+
+        double fxx = (diamondVals[0] + diamondVals[1] - 2 * (vn(edgeIdx, level))) / (hx * hx);
+        double fyy = (diamondVals[2] + diamondVals[3] - 2 * (vn(edgeIdx, level))) / (hy * hy);
+
+        diamondManual[edgeIdx] = fxx + fyy;
+      }
+    }
+    for(int i = 0; i < k_size; i++) {
+      auto [Linf, L1, L2] = MeasureErrors(wrapper.innerEdges(mesh), diamondManual, nabla2, i);
+      printf("%e %e %e %e\n", 180. / w, Linf, L1, L2);
+    }
   }
 
   return 0;
@@ -312,40 +381,22 @@ std::tuple<double, double, double> MeasureErrors(std::vector<int> indices,
   L1 /= indices.size();
   L2 = sqrt(L2) / sqrt(indices.size());
   return {Linf, L1, L2};
-} // {
-  //   FILE* fp = fopen("input.txt", "w+");
-  //   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-  //     auto cToE = atlasInterface::getNeighbors(
-  //         atlasInterface::atlasTag{}, mesh, {dawn::LocationType::Cells,
-  //         dawn::LocationType::Edges}, cellIdx);
-  //     double fx = 0.;
-  //     double fy = 0.;
-  //     for(int edgeIdx : cToE) {
-  //       auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
-  //       auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
-  //       auto [ui, vi] = sphericalHarmonic(x, y);
-  //       fx += ui;
-  //       fy += vi;
-  //     }
-  //     fprintf(fp, "%f %f\n", fx / 3., fy / 3.);
-  //   }
-  // }
+}
 
-// {
-//   FILE* fp = fopen("sol.txt", "w+");
-//   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-//     auto cToE = atlasInterface::getNeighbors(
-//         atlasInterface::atlasTag{}, mesh, {dawn::LocationType::Cells,
-//         dawn::LocationType::Edges}, cellIdx);
-//     double fx = 0.;
-//     double fy = 0.;
-//     for(int edgeIdx : cToE) {
-//       auto [nx, ny] = wrapper.primalNormal(mesh, edgeIdx);
-//       auto [x, y] = wrapper.edgeMidpoint(mesh, edgeIdx);
-//       auto [ui, vi] = analyticalLaplacian(x, y);
-//       fx += ui;
-//       fy += vi;
-//     }
-//     fprintf(fp, "%f %f\n", fx / 3., fy / 3.);
-//   }
-// }
+std::tuple<double, double, double> MeasureErrors(std::vector<int> indices,
+                                                 const std::vector<double>& ref,
+                                                 const atlasInterface::Field<double>& sol,
+                                                 int level) {
+  double Linf = 0.;
+  double L1 = 0.;
+  double L2 = 0.;
+  for(int idx : indices) {
+    double dif = ref[idx] - sol(idx, level);
+    Linf = fmax(fabs(dif), Linf);
+    L1 += fabs(dif);
+    L2 += dif * dif;
+  }
+  L1 /= indices.size();
+  L2 = sqrt(L2) / sqrt(indices.size());
+  return {Linf, L1, L2};
+}
