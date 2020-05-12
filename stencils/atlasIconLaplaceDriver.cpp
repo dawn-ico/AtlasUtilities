@@ -105,6 +105,7 @@ int main(int argc, char const* argv[]) {
   const bool readMeshFromDisk = false;
 
   atlas::Mesh mesh;
+
   if(!readMeshFromDisk) {
     mesh = AtlasMeshRect(w);
     atlas::mesh::actions::build_edges(mesh, atlas::util::Config("pole_edges", false));
