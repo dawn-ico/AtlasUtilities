@@ -136,6 +136,9 @@ bool CellsFromNetCDF(const netCDF::NcFile& dataFile, atlas::Mesh& mesh) {
     atlas::idx_t tri_nodes[3] = {cellToVertex[0 * ncells + cellIdx] - 1,
                                  cellToVertex[1 * ncells + cellIdx] - 1,
                                  cellToVertex[2 * ncells + cellIdx] - 1};
+    for(int i = 0; i < 3; i++) {
+      assert(tri_nodes[i] >= 0);
+    }
     node_connectivity.set(cellIdx, tri_nodes);
     glb_idx_cell[cellIdx] = cellIdx;
     cells_part(cellIdx) = defaultPartition;
@@ -157,7 +160,9 @@ bool AddNeighborList(const netCDF::NcFile& dataFile, atlas::Mesh& mesh,
     atlas::idx_t yOfX[yPerX];
     for(size_t innerIdx = 0; innerIdx < yPerX; innerIdx++) {
       // indices in netcdf are 1 based, data is column major
-      yOfX[innerIdx] = xToY[innerIdx * numY + elemIdx] - 1;
+      //  -1 indicates a missing value and should be kept as such
+      yOfX[innerIdx] =
+          xToY[innerIdx * numY + elemIdx] == -1 ? -1 : xToY[innerIdx * numY + elemIdx] - 1;
     }
     connectivity.set(elemIdx, yOfX);
   }
