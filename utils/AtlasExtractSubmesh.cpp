@@ -49,7 +49,7 @@ void copyNodeData(const atlas::Mesh& meshIn, const std::vector<int> keptNodeIndi
   auto ghostIn = atlas::array::make_view<int, 1>(nodesIn.ghost());
   auto flagsIn = atlas::array::make_view<int, 1>(nodesIn.flags());
 
-  const atlas::mesh::Nodes& nodes = meshOut.nodes();
+  atlas::mesh::Nodes& nodes = meshOut.nodes();
   auto xy = atlas::array::make_view<double, 2>(nodes.xy());
   auto lonlat = atlas::array::make_view<double, 2>(nodes.lonlat());
   auto glbIdxNode = atlas::array::make_view<atlas::gidx_t, 1>(nodes.global_index());

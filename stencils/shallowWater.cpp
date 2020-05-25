@@ -790,39 +790,39 @@ int main(int argc, char const* argv[]) {
       }
     }
     {
-      const auto& conn = mesh.cells().edge_connectivity();
-      for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-        // double lhs = 0.;
-        // for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
-        //   int edgeIdx = conn(cellIdx, nbhIdx);
-        //   lhs -= hs(edgeIdx, level) * nxLC(edgeIdx, level) *
-        //          edge_orientation_cell(cellIdx, nbhIdx, level) * L(edgeIdx, level);
+        // const auto& conn = mesh.cells().edge_connectivity();
+        // for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+        //   double lhs = 0.;
+        //   for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
+        //     int edgeIdx = conn(cellIdx, nbhIdx);
+        //     lhs -= hs(edgeIdx, level) * nxLC(edgeIdx, level) *
+        //            edge_orientation_cell(cellIdx, nbhIdx, level) * L(edgeIdx, level);
+        //   }
+        //   int edgeIdx0 = conn(cellIdx, 0);
+        //   int edgeIdx1 = conn(cellIdx, 1);
+        //   int edgeIdx2 = conn(cellIdx, 2);
+
+        //   auto term = [&](int edgeIdx, int nbhIdx, int sign) {
+        //     return hs(edgeIdx, level) * nxLC(edgeIdx, level) *
+        //            edge_orientation_cell(cellIdx, nbhIdx, level) * L(edgeIdx, level);
+        //   };
+
+        //   double lhs000 = term(edgeIdx0, 0, -1) + term(edgeIdx1, 1, -1) + term(edgeIdx2, 2, -1);
+        //   double lhs001 = term(edgeIdx0, 0, -1) + term(edgeIdx1, 1, -1) + term(edgeIdx2, 2, +1);
+        //   double lhs010 = term(edgeIdx0, 0, -1) + term(edgeIdx1, 1, +1) + term(edgeIdx2, 2, -1);
+        //   double lhs011 = term(edgeIdx0, 0, -1) + term(edgeIdx1, 1, +1) + term(edgeIdx2, 2, +1);
+        //   double lhs100 = term(edgeIdx0, 0, +1) + term(edgeIdx1, 1, -1) + term(edgeIdx2, 2, -1);
+        //   double lhs101 = term(edgeIdx0, 0, +1) + term(edgeIdx1, 1, -1) + term(edgeIdx2, 2, +1);
+        //   double lhs110 = term(edgeIdx0, 0, +1) + term(edgeIdx1, 1, +1) + term(edgeIdx2, 2, -1);
+        //   double lhs111 = term(edgeIdx0, 0, +1) + term(edgeIdx1, 1, +1) + term(edgeIdx2, 2, +1);
+
+        //   std::vector<double> lhs({lhs000, lhs001, lhs010, lhs011, lhs100, lhs101, lhs110,
+        //   lhs111}); double minLHS = *std::min_element(lhs.begin(), lhs.end(),
+        //                                     [](double a, double b) { return fabs(a) < fabs(b);
+        //                                     });
+        //   Sx(cellIdx, level) = minLHS / (A(cellIdx, level));
         // }
-        int edgeIdx0 = conn(cellIdx, 0);
-        int edgeIdx1 = conn(cellIdx, 1);
-        int edgeIdx2 = conn(cellIdx, 2);
-
-        auto term = [&](int edgeIdx, int nbhIdx, int sign) {
-          return hs(edgeIdx, level) * nxLC(edgeIdx, level) *
-                 edge_orientation_cell(cellIdx, nbhIdx, level) * L(edgeIdx, level);
-        };
-
-        double lhs000 = term(edgeIdx0, 0, -1) + term(edgeIdx1, 1, -1) + term(edgeIdx2, 2, -1);
-        double lhs001 = term(edgeIdx0, 0, -1) + term(edgeIdx1, 1, -1) + term(edgeIdx2, 2, +1);
-        double lhs010 = term(edgeIdx0, 0, -1) + term(edgeIdx1, 1, +1) + term(edgeIdx2, 2, -1);
-        double lhs011 = term(edgeIdx0, 0, -1) + term(edgeIdx1, 1, +1) + term(edgeIdx2, 2, +1);
-        double lhs100 = term(edgeIdx0, 0, +1) + term(edgeIdx1, 1, -1) + term(edgeIdx2, 2, -1);
-        double lhs101 = term(edgeIdx0, 0, +1) + term(edgeIdx1, 1, -1) + term(edgeIdx2, 2, +1);
-        double lhs110 = term(edgeIdx0, 0, +1) + term(edgeIdx1, 1, +1) + term(edgeIdx2, 2, -1);
-        double lhs111 = term(edgeIdx0, 0, +1) + term(edgeIdx1, 1, +1) + term(edgeIdx2, 2, +1);
-
-        std::vector<double> lhs({lhs000, lhs001, lhs010, lhs011, lhs100, lhs101, lhs110, lhs111});
-        double minLHS = *std::min_element(lhs.begin(), lhs.end(),
-                                          [](double a, double b) { return fabs(a) < fabs(b); });
-        Sx(cellIdx, level) = minLHS / A(cellIdx, level);
-      }
-    }
-    {
+    } {
       const auto& conn = mesh.cells().edge_connectivity();
       for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
         // double lhs = 0.;
