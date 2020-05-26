@@ -456,16 +456,29 @@ int main(int argc, char const* argv[]) {
     return {(1 / sin(phi + M_PI_2)) * c2 * sin(lambda) * sin(phi) * (-cos(phi)),
             c2 * cos(lambda) * (cos(phi) * cos(phi) - sin(phi) * sin(phi))};
   };
-  auto analyticalDivergence = [](double x, double y) {
-    return -0.5 * (sqrt(105. / (2 * M_PI))) * sin(2 * x) * cos(y) * cos(y) * sin(y) +
-           0.5 * sqrt(15. / (2 * M_PI)) * cos(x) * (cos(y) * cos(y) - sin(y) * sin(y));
-  };
-  auto analyticalCurl = [](double x, double y) {
+  auto analyticalDivergence = [](double lambda, double phi) {
     double c1 = 0.25 * sqrt(105. / (2 * M_PI));
     double c2 = 0.5 * sqrt(15. / (2 * M_PI));
-    double dudy = c1 * cos(2 * x) * cos(y) * (cos(y) * cos(y) - 2 * sin(y) * sin(y));
-    double dvdx = -c2 * cos(y) * sin(x) * sin(y);
-    return dvdx - dudy;
+
+    double u = c1 * cos(2 * lambda) * cos(phi) * cos(phi) * sin(phi);
+    double v = c2 * cos(lambda) * cos(phi) * sin(phi);
+
+    double u_lambda = c1 * -2 * sin(2 * lambda) * cos(phi) * cos(phi) * sin(phi);
+    double v_phi = c2 * cos(lambda) * (cos(phi) * cos(phi) - sin(phi) * sin(phi));
+
+    return 1 / sin(phi + M_PI_2) * u_lambda + v_phi + cos(phi + M_PI_2) / sin(phi + M_PI_2) * v;
+  };
+  auto analyticalCurl = [](double lambda, double phi) {
+    double c1 = 0.25 * sqrt(105. / (2 * M_PI));
+    double c2 = 0.5 * sqrt(15. / (2 * M_PI));
+
+    double u = c1 * cos(2 * lambda) * cos(phi) * cos(phi) * sin(phi);
+    double v = c2 * cos(lambda) * cos(phi) * sin(phi);
+
+    double dudlambda =
+        c1 * cos(2 * lambda) * cos(phi) * (cos(phi) * cos(phi) - 2 * sin(phi) * sin(phi));
+    double dvdphi = -c2 * cos(phi) * sin(lambda) * sin(phi);
+    return dudlambda + cos(phi + M_PI_2) / sin(phi + M_PI_2) * u - dvdphi / sin(phi + M_PI_2);
   };
 
   // test fun
@@ -478,7 +491,7 @@ int main(int argc, char const* argv[]) {
     auto [uIdx, vIdx] = sphericalHarmonic(lambdaCyl, phiCyl);
     u(edgeIdx, level) = uIdx;
     v(edgeIdx, level) = vIdx;
-    uvn(edgeIdx, level) = uIdx * n.x + vIdx * n.y;
+    uvn(edgeIdx, level) = uIdx * nENU.x + vIdx * nENU.y;
   }
   // solutions
   for(int cellIdx = 0; cellIdx < mesh->cells().size(); cellIdx++) {
@@ -608,23 +621,34 @@ int main(int argc, char const* argv[]) {
     }
     {
       const auto& conn = mesh->cells().edge_connectivity();
+      const auto& connNodes = mesh->cells().node_connectivity();
       FILE* fp = fopen("in.csv", "w+");
-      fprintf(fp, "lamba, phi, f, f_lambda, f_phi, f_lambda_ref, f_phi_ref;\n");
+      fprintf(fp, "lamba, phi, f, f_lambda, f_phi, f_lambda_ref, f_phi_ref, div, div_ref, curl, "
+                  "curl_ref\n");
       for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
         double uIdx = 0.;
         double vIdx = 0.;
+        double curlIdx = 0.;
+        double curlSolIdx = 0.;
         for(int nbhIdx = 0; nbhIdx < 3; nbhIdx++) {
           uIdx += u(conn(cellIdx, nbhIdx), level);
           vIdx += v(conn(cellIdx, nbhIdx), level);
         }
+        for(int nbhIdx = 0; nbhIdx < 3; nbhIdx++) {
+          curlIdx += curl(connNodes(cellIdx, nbhIdx), level);
+          curlSolIdx += curlSol(connNodes(cellIdx, nbhIdx), level);
+        }
         uIdx /= 3.;
         vIdx /= 3.;
+        curlIdx /= 3.;
+        curlSolIdx /= 3.;
         auto m = cellCircumcenter(mesh, xyz, cellIdx);
         double lambdaCyl = atan2(m.y, m.x);
         double phiCyl = asin((m.z) / (RADIUS_SPHERE));
-        fprintf(fp, "%f, %f, %f, %f, %f, %f, %f;\n", lambdaCyl, phiCyl, uIdx,
+        fprintf(fp, "%f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f\n", lambdaCyl, phiCyl, uIdx,
                 grad_u_x(cellIdx, level), grad_u_y(cellIdx, level), gradSol_u_x(cellIdx, level),
-                gradSol_u_y(cellIdx, level));
+                gradSol_u_y(cellIdx, level), div(cellIdx, level), divSol(cellIdx, level), curlIdx,
+                curlSolIdx);
       }
       fclose(fp);
     }
@@ -646,14 +670,14 @@ int main(int argc, char const* argv[]) {
     auto [Linf, L1, L2] = MeasureErrors(mesh->cells().size(), gradSol_v_y, grad_v_y, level);
     printf("gradVy: %e %e %e\n", Linf, L1, L2);
   }
-  // {
-  //   auto [Linf, L1, L2] = MeasureErrors(mesh->cells().size(), divSol, div, level);
-  //   printf("div: %e %e %e\n", Linf, L1, L2);
-  // }
-  // {
-  //   auto [Linf, L1, L2] = MeasureErrors(mesh->nodes().size(), curlSol, curl, level);
-  //   printf("curl: %e %e %e\n", Linf, L1, L2);
-  // }
+  {
+    auto [Linf, L1, L2] = MeasureErrors(mesh->cells().size(), divSol, div, level);
+    printf("div: %e %e %e\n", Linf, L1, L2);
+  }
+  {
+    auto [Linf, L1, L2] = MeasureErrors(mesh->nodes().size(), curlSol, curl, level);
+    printf("curl: %e %e %e\n", Linf, L1, L2);
+  }
 }
 
 std::tuple<double, double, double> MeasureErrors(int numEl,
