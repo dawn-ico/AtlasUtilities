@@ -4,8 +4,8 @@ target_link_libraries(atlasIconLaplaceDriver atlas eckit atlasUtilsLib)
 add_executable(atlasShallowWater shallowWater.cpp)
 target_link_libraries(atlasShallowWater netcdf atlas eckit atlasUtilsLib ${NETCDF_LIBRARY})
 
-add_executable(gradienTest graientsOnSphere.cpp)
-target_link_libraries(gradienTest netcdf atlas eckit atlasUtilsLib ${NETCDF_LIBRARY})
+add_executable(diffOpsOnSphere diffOpsOnSphere.cpp)
+target_link_libraries(diffOpsOnSphere netcdf atlas eckit atlasUtilsLib ${NETCDF_LIBRARY})
 
 add_executable(mylibIconLaplaceDriver mylibIconLaplaceDriver.cpp)
 target_link_libraries(mylibIconLaplaceDriver atlasUtilsLib myLib)
