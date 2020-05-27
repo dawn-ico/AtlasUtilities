@@ -34,8 +34,8 @@
 #include <fstream>
 #include <optional>
 
-#include "interfaces/mylib_interface.hpp"
-#include "mylib.hpp"
+#include "interfaces/toylib_interface.hpp"
+#include "toylib.hpp"
 
 #include "generated_iconLaplace.hpp"
 
@@ -50,45 +50,45 @@ int sgn(T val) {
 //===------------------------------------------------------------------------------------------===//
 // geometric helper functions
 //===------------------------------------------------------------------------------------------===//
-std::tuple<double, double> EdgeMidpoint(const mylib::Edge& e);
-std::tuple<double, double> CellCircumcenter(const mylib::Face& c);
-std::tuple<double, double> PrimalNormal(const mylib::Edge& e);
-std::tuple<double, double> CellMidPoint(const mylib::Face& c);
+std::tuple<double, double> EdgeMidpoint(const toylib::Edge& e);
+std::tuple<double, double> CellCircumcenter(const toylib::Face& c);
+std::tuple<double, double> PrimalNormal(const toylib::Edge& e);
+std::tuple<double, double> CellMidPoint(const toylib::Face& c);
 
-double EdgeLength(const mylib::Edge& e);
-double TriangleArea(const mylib::Vertex& v0, const mylib::Vertex& v1, const mylib::Vertex& v2);
-double CellArea(const mylib::Face& c);
-double DualCellArea(const mylib::Vertex& center);
-double DualEdgeLength(const mylib::Edge& e);
-double TangentOrientation(const mylib::Edge& e);
+double EdgeLength(const toylib::Edge& e);
+double TriangleArea(const toylib::Vertex& v0, const toylib::Vertex& v1, const toylib::Vertex& v2);
+double CellArea(const toylib::Face& c);
+double DualCellArea(const toylib::Vertex& center);
+double DualEdgeLength(const toylib::Edge& e);
+double TangentOrientation(const toylib::Edge& e);
 
-std::vector<mylib::Face> innerCells(const mylib::Grid& m);
-std::vector<mylib::Edge> innerEdges(const mylib::Grid& m);
-std::vector<mylib::Vertex> innerNodes(const mylib::Grid& m);
+std::vector<toylib::Face> innerCells(const toylib::Grid& m);
+std::vector<toylib::Edge> innerEdges(const toylib::Grid& m);
+std::vector<toylib::Vertex> innerNodes(const toylib::Grid& m);
 
 //===------------------------------------------------------------------------------------------===//
 // output (debugging)
 //===------------------------------------------------------------------------------------------===//
-void dumpMesh(const mylib::Grid& m, const std::string& fname);
-void dumpDualMesh(const mylib::Grid& m, const std::string& fname);
+void dumpMesh(const toylib::Grid& m, const std::string& fname);
+void dumpDualMesh(const toylib::Grid& m, const std::string& fname);
 
-void dumpSparseData(const mylib::Grid& mesh, const mylib::SparseVertexData<double>& sparseData,
+void dumpSparseData(const toylib::Grid& mesh, const toylib::SparseVertexData<double>& sparseData,
                     int level, int edgesPerVertex, const std::string& fname);
-void dumpSparseData(const mylib::Grid& mesh, const mylib::SparseFaceData<double>& sparseData,
+void dumpSparseData(const toylib::Grid& mesh, const toylib::SparseFaceData<double>& sparseData,
                     int level, int edgesPerCell, const std::string& fname);
 
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::EdgeData<double>& field, int level,
-               std::optional<mylib::edge_color> color = std::nullopt);
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::EdgeData<double>& field_x, const mylib::EdgeData<double>& field_y,
-               int level, std::optional<mylib::edge_color> color = std::nullopt);
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::FaceData<double>& field, int level,
-               std::optional<mylib::face_color> color = std::nullopt);
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::VertexData<double>& field, int level);
-void debugDumpMesh(const mylib::Grid& mesh, const std::string prefix);
+void dumpField(const std::string& fname, const toylib::Grid& mesh,
+               const toylib::EdgeData<double>& field, int level,
+               std::optional<toylib::edge_color> color = std::nullopt);
+void dumpField(const std::string& fname, const toylib::Grid& mesh,
+               const toylib::EdgeData<double>& field_x, const toylib::EdgeData<double>& field_y,
+               int level, std::optional<toylib::edge_color> color = std::nullopt);
+void dumpField(const std::string& fname, const toylib::Grid& mesh,
+               const toylib::FaceData<double>& field, int level,
+               std::optional<toylib::face_color> color = std::nullopt);
+void dumpField(const std::string& fname, const toylib::Grid& mesh,
+               const toylib::VertexData<double>& field, int level);
+void debugDumpMesh(const toylib::Grid& mesh, const std::string prefix);
 
 //===------------------------------------------------------------------------------------------===//
 // error reporting
@@ -112,7 +112,7 @@ int main(int argc, char const* argv[]) {
 
   const bool dbg_out = false;
 
-  mylib::Grid mesh = MylibMeshRect(w);
+  toylib::Grid mesh = toylibMeshRect(w);
 
   mesh.scale(M_PI / 180.); // rescale to radians
 
@@ -126,51 +126,51 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   // input field (field we want to take the laplacian of)
   //===------------------------------------------------------------------------------------------===//
-  mylib::EdgeData<double> vec(mesh, k_size);
+  toylib::EdgeData<double> vec(mesh, k_size);
 
   //===------------------------------------------------------------------------------------------===//
   // control fields (containing analytical solutions)
   //===------------------------------------------------------------------------------------------===//
-  mylib::FaceData<double> divVecSol(mesh, k_size);
-  mylib::VertexData<double> rotVecSol(mesh, k_size);
-  mylib::EdgeData<double> lapVecSol(mesh, k_size);
+  toylib::FaceData<double> divVecSol(mesh, k_size);
+  toylib::VertexData<double> rotVecSol(mesh, k_size);
+  toylib::EdgeData<double> lapVecSol(mesh, k_size);
 
   //===------------------------------------------------------------------------------------------===//
   // output field (field containing the computed laplacian)
   //===------------------------------------------------------------------------------------------===//
-  mylib::EdgeData<double> nabla2_vec(mesh, k_size);
+  toylib::EdgeData<double> nabla2_vec(mesh, k_size);
   // term 1 and term 2 of nabla for debugging
-  mylib::EdgeData<double> nabla2t1_vec(mesh, k_size);
-  mylib::EdgeData<double> nabla2t2_vec(mesh, k_size);
+  toylib::EdgeData<double> nabla2t1_vec(mesh, k_size);
+  toylib::EdgeData<double> nabla2t2_vec(mesh, k_size);
 
   //===------------------------------------------------------------------------------------------===//
   // intermediary fields (curl/rot and div of vec_e)
   //===------------------------------------------------------------------------------------------===//
-  mylib::VertexData<double> rot_vec(mesh, k_size);
-  mylib::FaceData<double> div_vec(mesh, k_size);
+  toylib::VertexData<double> rot_vec(mesh, k_size);
+  toylib::FaceData<double> div_vec(mesh, k_size);
 
   //===------------------------------------------------------------------------------------------===//
   // sparse dimensions for computing intermediary fields
   //===------------------------------------------------------------------------------------------===//
-  mylib::SparseVertexData<double> geofac_rot(mesh, k_size, edgesPerVertex);
-  mylib::SparseVertexData<double> edge_orientation_vertex(mesh, k_size, edgesPerVertex);
+  toylib::SparseVertexData<double> geofac_rot(mesh, k_size, edgesPerVertex);
+  toylib::SparseVertexData<double> edge_orientation_vertex(mesh, k_size, edgesPerVertex);
 
-  mylib::SparseFaceData<double> geofac_div(mesh, k_size, edgesPerCell);
-  mylib::SparseFaceData<double> edge_orientation_cell(mesh, k_size, edgesPerCell);
+  toylib::SparseFaceData<double> geofac_div(mesh, k_size, edgesPerCell);
+  toylib::SparseFaceData<double> edge_orientation_cell(mesh, k_size, edgesPerCell);
 
   //===------------------------------------------------------------------------------------------===//
   // fields containing geometric information
   //===------------------------------------------------------------------------------------------===//
-  mylib::EdgeData<double> tangent_orientation(mesh, k_size);
-  mylib::EdgeData<double> primal_edge_length(mesh, k_size);
-  mylib::EdgeData<double> dual_edge_length(mesh, k_size);
-  mylib::EdgeData<double> dual_normal_x(mesh, k_size);
-  mylib::EdgeData<double> dual_normal_y(mesh, k_size);
-  mylib::EdgeData<double> primal_normal_x(mesh, k_size);
-  mylib::EdgeData<double> primal_normal_y(mesh, k_size);
+  toylib::EdgeData<double> tangent_orientation(mesh, k_size);
+  toylib::EdgeData<double> primal_edge_length(mesh, k_size);
+  toylib::EdgeData<double> dual_edge_length(mesh, k_size);
+  toylib::EdgeData<double> dual_normal_x(mesh, k_size);
+  toylib::EdgeData<double> dual_normal_y(mesh, k_size);
+  toylib::EdgeData<double> primal_normal_x(mesh, k_size);
+  toylib::EdgeData<double> primal_normal_y(mesh, k_size);
 
-  mylib::FaceData<double> cell_area(mesh, k_size);
-  mylib::VertexData<double> dual_cell_area(mesh, k_size);
+  toylib::FaceData<double> cell_area(mesh, k_size);
+  toylib::VertexData<double> dual_cell_area(mesh, k_size);
 
   //===------------------------------------------------------------------------------------------===//
   // initialize geometrical info on edges
@@ -258,7 +258,7 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   // initialize geometrical factors (sparse dimensions)
   //===------------------------------------------------------------------------------------------===//
-  auto dot = [](const mylib::Vertex& v1, const mylib::Vertex& v2) {
+  auto dot = [](const toylib::Vertex& v1, const toylib::Vertex& v2) {
     return v1.x() * v2.x() + v1.y() * v2.y();
   };
 
@@ -268,9 +268,9 @@ int main(int argc, char const* argv[]) {
       continue;
     }
     for(const auto& e : v.edges()) {
-      mylib::Vertex testVec =
-          mylib::Vertex(v.vertex(m_sparse).x() - v.x(), v.vertex(m_sparse).y() - v.y(), -1);
-      mylib::Vertex dual = mylib::Vertex(dual_normal_x(*e, level), dual_normal_y(*e, level), -1);
+      toylib::Vertex testVec =
+          toylib::Vertex(v.vertex(m_sparse).x() - v.x(), v.vertex(m_sparse).y() - v.y(), -1);
+      toylib::Vertex dual = toylib::Vertex(dual_normal_x(*e, level), dual_normal_y(*e, level), -1);
       edge_orientation_vertex(v, m_sparse, level) = sgn(dot(testVec, dual));
       m_sparse++;
     }
@@ -279,10 +279,10 @@ int main(int argc, char const* argv[]) {
     int m_sparse = 0;
     auto [xm, ym] = CellCircumcenter(c);
     for(const auto& e : c.edges()) {
-      mylib::Vertex vOutside(e->vertex(0).x() - xm, e->vertex(0).y() - ym, -1);
+      toylib::Vertex vOutside(e->vertex(0).x() - xm, e->vertex(0).y() - ym, -1);
       edge_orientation_cell(c, m_sparse, level) =
-          sgn(dot(mylib::Vertex(e->vertex(0).x() - xm, e->vertex(0).y() - ym, -1),
-                  mylib::Vertex(primal_normal_x(*e, level), primal_normal_y(*e, level), -1)));
+          sgn(dot(toylib::Vertex(e->vertex(0).x() - xm, e->vertex(0).y() - ym, -1),
+                  toylib::Vertex(primal_normal_x(*e, level), primal_normal_y(*e, level), -1)));
       m_sparse++;
     }
   }
@@ -318,7 +318,7 @@ int main(int argc, char const* argv[]) {
   //===------------------------------------------------------------------------------------------===//
   // stencil call
   //===------------------------------------------------------------------------------------------===//
-  dawn_generated::cxxnaiveico::icon<mylibInterface::mylibTag>(
+  dawn_generated::cxxnaiveico::ICON_laplacian_stencil<toylibInterface::toylibTag>(
       mesh, k_size, vec, div_vec, rot_vec, nabla2t1_vec, nabla2t2_vec, nabla2_vec,
       primal_edge_length, dual_edge_length, tangent_orientation, geofac_rot, geofac_div)
       .run();
@@ -357,7 +357,7 @@ int main(int argc, char const* argv[]) {
 
 namespace {
 
-double EdgeLength(const mylib::Edge& e) {
+double EdgeLength(const toylib::Edge& e) {
   double x0 = e.vertex(0).x();
   double y0 = e.vertex(0).y();
   double x1 = e.vertex(1).x();
@@ -367,7 +367,7 @@ double EdgeLength(const mylib::Edge& e) {
   return sqrt(dx * dx + dy * dy);
 }
 
-std::tuple<double, double> EdgeMidpoint(const mylib::Edge& e) {
+std::tuple<double, double> EdgeMidpoint(const toylib::Edge& e) {
   double x0 = e.vertex(0).x();
   double y0 = e.vertex(0).y();
   double x1 = e.vertex(1).x();
@@ -375,7 +375,7 @@ std::tuple<double, double> EdgeMidpoint(const mylib::Edge& e) {
   return {0.5 * (x0 + x1), 0.5 * (y0 + y1)};
 }
 
-std::tuple<double, double> CellCircumcenter(const mylib::Face& c) {
+std::tuple<double, double> CellCircumcenter(const toylib::Face& c) {
   double Ax = c.vertex(0).x();
   double Ay = c.vertex(0).y();
   double Bx = c.vertex(1).x();
@@ -393,7 +393,7 @@ std::tuple<double, double> CellCircumcenter(const mylib::Face& c) {
   return {Ux, Uy};
 }
 
-std::tuple<double, double> PrimalNormal(const mylib::Edge& e) {
+std::tuple<double, double> PrimalNormal(const toylib::Edge& e) {
   if(e.faces().size() != 2) {
     return {0., 0.};
   }
@@ -406,26 +406,26 @@ std::tuple<double, double> PrimalNormal(const mylib::Edge& e) {
   return {dx / l, dy / l};
 }
 
-std::tuple<double, double> CellMidPoint(const mylib::Face& c) {
+std::tuple<double, double> CellMidPoint(const toylib::Face& c) {
   auto v0 = c.vertex(0);
   auto v1 = c.vertex(1);
   auto v2 = c.vertex(2);
   return {1. / 3. * (v0.x() + v1.x() + v2.x()), 1. / 3. * (v0.y() + v1.y() + v2.y())};
 }
 
-double TriangleArea(const mylib::Vertex& v0, const mylib::Vertex& v1, const mylib::Vertex& v2) {
+double TriangleArea(const toylib::Vertex& v0, const toylib::Vertex& v1, const toylib::Vertex& v2) {
   return fabs(
       (v0.x() * (v1.y() - v2.y()) + v1.x() * (v2.y() - v0.y()) + v2.x() * (v0.y() - v1.y())) * 0.5);
 }
 
-double CellArea(const mylib::Face& c) {
+double CellArea(const toylib::Face& c) {
   auto v0 = c.vertex(0);
   auto v1 = c.vertex(1);
   auto v2 = c.vertex(2);
   return TriangleArea(v0, v1, v2);
 }
 
-double DualCellArea(const mylib::Vertex& center) {
+double DualCellArea(const toylib::Vertex& center) {
   double totalArea = 0.;
   for(const auto& e : center.edges()) {
     if(e->faces().size() != 2) {
@@ -433,14 +433,14 @@ double DualCellArea(const mylib::Vertex& center) {
     }
     auto [leftx, lefty] = CellCircumcenter(e->face(0));
     auto [rightx, righty] = CellCircumcenter(e->face(1));
-    mylib::Vertex left(leftx, lefty, -1);
-    mylib::Vertex right(rightx, righty, -1);
+    toylib::Vertex left(leftx, lefty, -1);
+    toylib::Vertex right(rightx, righty, -1);
     totalArea += TriangleArea(center, left, right);
   }
   return totalArea;
 }
 
-double DualEdgeLength(const mylib::Edge& e) {
+double DualEdgeLength(const toylib::Edge& e) {
   if(e.faces().size() == 1) { // dual edge length is zero on boundaries!
     return 0.;
   }
@@ -453,7 +453,7 @@ double DualEdgeLength(const mylib::Edge& e) {
   return sqrt(dx * dx + dy * dy);
 }
 
-double TangentOrientation(const mylib::Edge& e) {
+double TangentOrientation(const toylib::Edge& e) {
   if(e.faces().size() == 1) { // not sure about this on the boundaries. chose 1 arbitrarily
     return 1.;
   }
@@ -473,8 +473,8 @@ double TangentOrientation(const mylib::Edge& e) {
   return sgn(c2c1x * v2v1y - c2c1y * v2v1x);
 }
 
-std::vector<mylib::Face> innerCells(const mylib::Grid& m) {
-  std::vector<mylib::Face> innerCells;
+std::vector<toylib::Face> innerCells(const toylib::Grid& m) {
+  std::vector<toylib::Face> innerCells;
   for(const auto f : m.faces()) {
     bool hasBoundaryEdge = false;
     for(const auto e : f.edges()) {
@@ -487,8 +487,8 @@ std::vector<mylib::Face> innerCells(const mylib::Grid& m) {
   }
   return innerCells;
 }
-std::vector<mylib::Edge> innerEdges(const mylib::Grid& m) {
-  std::vector<mylib::Edge> innerEdges;
+std::vector<toylib::Edge> innerEdges(const toylib::Grid& m) {
+  std::vector<toylib::Edge> innerEdges;
   for(const auto e : m.edges()) {
     if(e.get().faces().size() != 2) {
       continue;
@@ -497,8 +497,8 @@ std::vector<mylib::Edge> innerEdges(const mylib::Grid& m) {
   }
   return innerEdges;
 }
-std::vector<mylib::Vertex> innerNodes(const mylib::Grid& m) {
-  std::vector<mylib::Vertex> innerVertices;
+std::vector<toylib::Vertex> innerNodes(const toylib::Grid& m) {
+  std::vector<toylib::Vertex> innerVertices;
   for(const auto v : m.vertices()) {
     if(v.edges().size() != 6) {
       continue;
@@ -508,7 +508,7 @@ std::vector<mylib::Vertex> innerNodes(const mylib::Grid& m) {
   return innerVertices;
 }
 
-void debugDumpMesh(const mylib::Grid& mesh, const std::string prefix) {
+void debugDumpMesh(const toylib::Grid& mesh, const std::string prefix) {
   {
     char buf[256];
     sprintf(buf, "%sT.txt", prefix.c_str());
@@ -530,7 +530,7 @@ void debugDumpMesh(const mylib::Grid& mesh, const std::string prefix) {
   }
 }
 
-void dumpMesh(const mylib::Grid& m, const std::string& fname) {
+void dumpMesh(const toylib::Grid& m, const std::string& fname) {
   FILE* fp = fopen(fname.c_str(), "w+");
   for(const auto& e : m.edges()) {
     fprintf(fp, "%f %f %f %f\n", e.get().vertex(0).x(), e.get().vertex(0).y(),
@@ -539,7 +539,7 @@ void dumpMesh(const mylib::Grid& m, const std::string& fname) {
   fclose(fp);
 }
 
-void dumpDualMesh(const mylib::Grid& m, const std::string& fname) {
+void dumpDualMesh(const toylib::Grid& m, const std::string& fname) {
   FILE* fp = fopen(fname.c_str(), "w+");
   for(const auto& e : m.edges()) {
     if(e.get().faces().size() != 2) {
@@ -558,7 +558,7 @@ void dumpDualMesh(const mylib::Grid& m, const std::string& fname) {
   fclose(fp);
 }
 
-void dumpSparseData(const mylib::Grid& mesh, const mylib::SparseVertexData<double>& sparseData,
+void dumpSparseData(const toylib::Grid& mesh, const toylib::SparseVertexData<double>& sparseData,
                     int level, int edgesPerVertex, const std::string& fname) {
   FILE* fp = fopen(fname.c_str(), "w+");
   for(const auto& v : mesh.vertices()) {
@@ -574,7 +574,7 @@ void dumpSparseData(const mylib::Grid& mesh, const mylib::SparseVertexData<doubl
   }
 }
 
-void dumpSparseData(const mylib::Grid& mesh, const mylib::SparseFaceData<double>& sparseData,
+void dumpSparseData(const toylib::Grid& mesh, const toylib::SparseFaceData<double>& sparseData,
                     int level, int edgesPerCell, const std::string& fname) {
   FILE* fp = fopen(fname.c_str(), "w+");
   for(const auto& c : mesh.faces()) {
@@ -591,9 +591,9 @@ void dumpSparseData(const mylib::Grid& mesh, const mylib::SparseFaceData<double>
   }
 }
 
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::EdgeData<double>& field, int level,
-               std::optional<mylib::edge_color> color) {
+void dumpField(const std::string& fname, const toylib::Grid& mesh,
+               const toylib::EdgeData<double>& field, int level,
+               std::optional<toylib::edge_color> color) {
   FILE* fp = fopen(fname.c_str(), "w+");
   for(auto& e : mesh.edges()) {
     if(color.has_value() && e.get().color() != color.value()) {
@@ -605,9 +605,9 @@ void dumpField(const std::string& fname, const mylib::Grid& mesh,
   fclose(fp);
 }
 
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::EdgeData<double>& field_x, const mylib::EdgeData<double>& field_y,
-               int level, std::optional<mylib::edge_color> color) {
+void dumpField(const std::string& fname, const toylib::Grid& mesh,
+               const toylib::EdgeData<double>& field_x, const toylib::EdgeData<double>& field_y,
+               int level, std::optional<toylib::edge_color> color) {
   FILE* fp = fopen(fname.c_str(), "w+");
   for(auto& e : mesh.edges()) {
     if(color.has_value() && e.get().color() != color.value()) {
@@ -619,9 +619,9 @@ void dumpField(const std::string& fname, const mylib::Grid& mesh,
   fclose(fp);
 }
 
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::FaceData<double>& field, int level,
-               std::optional<mylib::face_color> color) {
+void dumpField(const std::string& fname, const toylib::Grid& mesh,
+               const toylib::FaceData<double>& field, int level,
+               std::optional<toylib::face_color> color) {
   FILE* fp = fopen(fname.c_str(), "w+");
   for(auto& c : mesh.faces()) {
     if(color.has_value() && c.color() != color.value()) {
@@ -633,8 +633,8 @@ void dumpField(const std::string& fname, const mylib::Grid& mesh,
   fclose(fp);
 }
 
-void dumpField(const std::string& fname, const mylib::Grid& mesh,
-               const mylib::VertexData<double>& field, int level) {
+void dumpField(const std::string& fname, const toylib::Grid& mesh,
+               const toylib::VertexData<double>& field, int level) {
   FILE* fp = fopen(fname.c_str(), "w+");
   for(auto& v : mesh.vertices()) {
     fprintf(fp, "%f %f %f\n", v.x(), v.y(), field(v, level));

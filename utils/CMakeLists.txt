@@ -16,5 +16,5 @@ add_library(atlasUtilsLib STATIC
   GenerateRectMylibMesh.cpp
   GenerateRectMylibMesh.h
 )
-target_link_libraries(atlasUtilsLib myLib atlas eckit)
+target_link_libraries(atlasUtilsLib netcdf_c++4 myLib atlas eckit)
 target_include_directories(atlasUtilsLib PUBLIC .)

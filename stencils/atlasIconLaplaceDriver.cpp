@@ -485,7 +485,7 @@ int main(int argc, char const* argv[]) {
   // stencil call
   //===------------------------------------------------------------------------------------------===/
   clock_t start = clock();
-  dawn_generated::cxxnaiveico::icon<atlasInterface::atlasTag>(
+  dawn_generated::cxxnaiveico::ICON_laplacian_stencil<atlasInterface::atlasTag>(
       mesh, k_size, vec, div_vec, rot_vec, nabla2t1_vec, nabla2t2_vec, nabla2_vec,
       primal_edge_length, dual_edge_length, tangent_orientation, geofac_rot, geofac_div)
       .run();

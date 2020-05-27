@@ -18,7 +18,14 @@
 #include "atlas/mesh.h"
 #include <algorithm>
 #include <cassert>
+#include <functional>
 #include <iterator>
+#include <set>
+#include <tuple>
+#include <unordered_map>
+#include <variant>
+
+#include "unstructured_interface.hpp"
 
 namespace utility {
 namespace impl_ {
@@ -68,17 +75,14 @@ struct atlasTag {};
 
 template <typename T>
 class Field {
-private:
-  atlas::array::ArrayView<T, 2> atlas_field_;
-
 public:
   T const& operator()(int f, int k) const { return atlas_field_(f, k); }
   T& operator()(int f, int k) { return atlas_field_(f, k); }
 
   Field(atlas::array::ArrayView<T, 2> const& atlas_field) : atlas_field_(atlas_field) {}
-  T* data() { return atlas_field_.data(); }
-  const T* data() const { return atlas_field_.data(); }
-  int numElements() const { return atlas_field_.shape(0) * atlas_field_.shape(1); }
+
+private:
+  atlas::array::ArrayView<T, 2> atlas_field_;
 };
 
 template <typename T>
@@ -90,9 +94,6 @@ Field<T> vertexFieldType(atlasTag);
 
 template <typename T>
 class SparseDimension {
-private:
-  atlas::array::ArrayView<T, 3> sparse_dimension_;
-
 public:
   T const& operator()(int elem_idx, int sparse_dim_idx, int level) const {
     return sparse_dimension_(elem_idx, level, sparse_dim_idx);
@@ -101,14 +102,11 @@ public:
     return sparse_dimension_(elem_idx, level, sparse_dim_idx);
   }
 
-  T* data() { return sparse_dimension_.data(); }
-  const T* data() const { return sparse_dimension_.data(); }
-  int numElements() const {
-    return sparse_dimension_.shape(0) * sparse_dimension_.shape(1) * sparse_dimension_.shape(2);
-  }
-
   SparseDimension(atlas::array::ArrayView<T, 3> const& sparse_dimension)
       : sparse_dimension_(sparse_dimension) {}
+
+private:
+  atlas::array::ArrayView<T, 3> sparse_dimension_;
 };
 
 template <typename T>
@@ -119,6 +117,8 @@ template <typename T>
 SparseDimension<T> sparseVertexFieldType(atlasTag);
 
 atlas::Mesh meshType(atlasTag);
+
+int indexType(atlasTag);
 
 inline auto getCells(atlasTag, atlas::Mesh const& m) {
   return utility::irange(0, m.cells().size());
@@ -133,7 +133,10 @@ inline auto getVertices(atlasTag, atlas::Mesh const& m) {
 inline std::vector<int> getNeighs(const atlas::Mesh::HybridElements::Connectivity& conn, int idx) {
   std::vector<int> neighs;
   for(int n = 0; n < conn.cols(idx); ++n) {
-    neighs.emplace_back(conn(idx, n));
+    int nbhIdx = conn(idx, n);
+    if(nbhIdx != conn.missing_value()) {
+      neighs.emplace_back(nbhIdx);
+    }
   }
   return neighs;
 }
@@ -141,106 +144,136 @@ inline std::vector<int> getNeighs(const atlas::Mesh::HybridElements::Connectivit
 inline std::vector<int> getNeighs(const atlas::mesh::Nodes::Connectivity& conn, int idx) {
   std::vector<int> neighs;
   for(int n = 0; n < conn.cols(idx); ++n) {
-    neighs.emplace_back(conn(idx, n));
+    int nbhIdx = conn(idx, n);
+    if(nbhIdx != conn.missing_value()) {
+      neighs.emplace_back(nbhIdx);
+    }
   }
   return neighs;
 }
 
-inline std::vector<int> const& cellNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
-  // note this is only a workaround and does only work as long as we have only one mesh
-  static std::map<int, std::vector<int>> neighs;
-  if(neighs.count(idx) == 0) {
-    const auto& conn = m.cells().edge_connectivity();
-    neighs[idx] = std::vector<int>{};
-    for(int n = 0; n < conn.cols(idx); ++n) {
-      int initialEdge = conn(idx, n);
-      for(int c1 = 0; c1 < m.cells().size(); ++c1) {
-        for(int n1 = 0; n1 < conn.cols(c1); ++n1) {
-          int compareEdge = conn(c1, n1);
-          if(initialEdge == compareEdge && c1 != idx) {
-            neighs[idx].emplace_back(c1);
-          }
-        }
-      }
+// neighbor tables, adressable by two location types (from -> to)
+typedef std::tuple<dawn::LocationType, dawn::LocationType> key_t;
+
+struct key_hash : public std::unary_function<key_t, std::size_t> {
+  std::size_t operator()(const key_t& k) const {
+    return size_t(std::get<0>(k)) ^ size_t(std::get<1>(k));
+  }
+};
+
+// recursive function collecting neighbors succesively
+inline void getNeighborsImpl(
+    const std::unordered_map<key_t, std::function<std::vector<int>(int)>, key_hash>& nbhTables,
+    std::vector<dawn::LocationType>& chain, dawn::LocationType targetType, std::vector<int> front,
+    std::list<int>& result) {
+  assert(chain.size() >= 2);
+  dawn::LocationType from = chain.back();
+  chain.pop_back();
+  dawn::LocationType to = chain.back();
+
+  bool isNeighborOfTarget = nbhTables.count({from, targetType});
+
+  std::vector<int> newFront;
+  for(auto idx : front) {
+    // Build up new front for next recursive call
+    auto nextElems = nbhTables.at({from, to})(idx);
+    newFront.insert(std::end(newFront), std::begin(nextElems), std::end(nextElems));
+
+    if(isNeighborOfTarget) {
+      const auto& targetElems = nbhTables.at({from, targetType})(idx);
+      // Add to result set the neighbors (of target type) of current (idx)
+      std::copy(targetElems.begin(), targetElems.end(), std::inserter(result, result.end()));
     }
   }
-  return neighs[idx];
-}
 
-inline std::vector<int> const& edgeNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
-  // note this is only a workaround and does only work as long as we have only one mesh
-  static std::map<int, std::vector<int>> neighs;
-  if(neighs.count(idx) == 0) {
-    neighs[idx] = getNeighs(m.cells().edge_connectivity(), idx);
+  if(chain.size() >= 2) {
+    getNeighborsImpl(nbhTables, chain, targetType, newFront, result);
   }
-  return neighs[idx];
 }
 
-inline std::vector<int> const& nodeNeighboursOfCell(atlas::Mesh const& m, int const& idx) {
-  // note this is only a workaround and does only work as long as we have only one mesh
-  static std::map<int, std::vector<int>> neighs;
-  if(neighs.count(idx) == 0) {
-    neighs[idx] = getNeighs(m.cells().node_connectivity(), idx);
-  }
-  return neighs[idx];
-}
-
-inline std::vector<int> cellNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
-  // note this is only a workaround and does only work as long as we have only one mesh
-  static std::map<int, std::vector<int>> neighs;
-  if(neighs.count(idx) == 0) {
-    neighs[idx] = getNeighs(m.edges().cell_connectivity(), idx);
-  }
-  assert(neighs[idx].size() == 2);
-  return neighs[idx];
-}
-
-inline std::vector<int> nodeNeighboursOfEdge(atlas::Mesh const& m, int const& idx) {
-  // note this is only a workaround and does only work as long as we have only one mesh
-  static std::map<int, std::vector<int>> neighs;
-  if(neighs.count(idx) == 0) {
-    neighs[idx] = getNeighs(m.edges().node_connectivity(), idx);
-  }
-  assert(neighs[idx].size() == 2);
-  return neighs[idx];
-}
-
-inline std::vector<int> cellNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
-  // note this is only a workaround and does only work as long as we have only one mesh
-  static std::map<int, std::vector<int>> neighs;
-  if(neighs.count(idx) == 0) {
-    neighs[idx] = getNeighs(m.nodes().cell_connectivity(), idx);
-  }
-  return neighs[idx];
-}
-
-inline std::vector<int> edgeNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
-  // note this is only a workaround and does only work as long as we have only one mesh
-  static std::map<int, std::vector<int>> neighs;
-  if(neighs.count(idx) == 0) {
-    neighs[idx] = getNeighs(m.nodes().edge_connectivity(), idx);
-  }
-  return neighs[idx];
-}
-
-inline std::vector<int> nodeNeighboursOfNode(atlas::Mesh const& m, int const& idx) {
-  // note this is only a workaround and does only work as long as we have only one mesh
-  static std::map<int, std::vector<int>> neighs;
-  if(neighs.count(idx) == 0) {
-    const auto& conn_nodes_to_edge = m.nodes().edge_connectivity();
-    neighs[idx] = std::vector<int>{};
-    for(int ne = 0; ne < conn_nodes_to_edge.cols(idx); ++ne) {
-      int nbh_edge_idx = conn_nodes_to_edge(idx, ne);
-      const auto& conn_edge_to_nodes = m.edges().node_connectivity();
-      for(int nn = 0; nn < conn_edge_to_nodes.cols(nbh_edge_idx); ++nn) {
-        int nbhNode = conn_edge_to_nodes(idx, nn);
-        if(nbhNode != idx) {
-          neighs[idx].emplace_back(nbhNode);
-        }
-      }
+template <typename T>
+struct NotDuplicateOrOrigin {
+  NotDuplicateOrOrigin(){};
+  NotDuplicateOrOrigin(T origin) : origin_(origin) { compOrigin = true; };
+  bool operator()(const T& element) {
+    if(compOrigin && element == origin_) {
+      return false;
     }
+    return s_.insert(element).second; // true if s_.insert(element);
   }
-  return neighs[idx];
+
+private:
+  std::set<T> s_;
+  // optional only available in C++17, but we compile generated code with C++11
+  bool compOrigin = false;
+  T origin_;
+};
+
+// entry point, kicks off the recursive function above if required
+inline std::vector<int> getNeighbors(atlasTag, atlas::Mesh const& mesh,
+                                     std::vector<dawn::LocationType> chain, int idx) {
+
+  // target type is at the end of the chain (we collect all neighbors of this type "along" the
+  // chain)
+  dawn::LocationType targetType = chain.back();
+
+  // lets revert s.t. we can use the standard std::vector interface (pop_back() and back())
+  std::reverse(std::begin(chain), std::end(chain));
+
+  auto cellsFromEdge = [&](int edgeIdx) -> std::vector<int> {
+    return getNeighs(mesh.edges().cell_connectivity(), edgeIdx);
+  };
+  auto nodesFromEdge = [&](int edgeIdx) -> std::vector<int> {
+    return getNeighs(mesh.edges().node_connectivity(), edgeIdx);
+  };
+
+  auto cellsFromNode = [&](int nodeIdx) -> std::vector<int> {
+    return getNeighs(mesh.nodes().cell_connectivity(), nodeIdx);
+  };
+  auto edgesFromNode = [&](int nodeIdx) -> std::vector<int> {
+    return getNeighs(mesh.nodes().edge_connectivity(), nodeIdx);
+  };
+  auto nodesFromCell = [&](int nodeIdx) -> std::vector<int> {
+    return getNeighs(mesh.cells().node_connectivity(), nodeIdx);
+  };
+  auto edgesFromCell = [&](int nodeIdx) -> std::vector<int> {
+    return getNeighs(mesh.cells().edge_connectivity(), nodeIdx);
+  };
+
+  // convenience wrapper for all neighbor tables
+  std::unordered_map<key_t, std::function<std::vector<int>(int)>, key_hash> nbhTables;
+  nbhTables.emplace(std::make_tuple(dawn::LocationType::Cells, dawn::LocationType::Edges),
+                    edgesFromCell);
+  nbhTables.emplace(std::make_tuple(dawn::LocationType::Cells, dawn::LocationType::Vertices),
+                    nodesFromCell);
+  nbhTables.emplace(std::make_tuple(dawn::LocationType::Edges, dawn::LocationType::Cells),
+                    cellsFromEdge);
+  nbhTables.emplace(std::make_tuple(dawn::LocationType::Edges, dawn::LocationType::Vertices),
+                    nodesFromEdge);
+  nbhTables.emplace(std::make_tuple(dawn::LocationType::Vertices, dawn::LocationType::Cells),
+                    cellsFromNode);
+  nbhTables.emplace(std::make_tuple(dawn::LocationType::Vertices, dawn::LocationType::Edges),
+                    edgesFromNode);
+
+  // result set
+  std::list<int> result;
+
+  // we want to exclude the original element from the neighborhood obtained we can compare by
+  // the id, but only if targetType = startOfChain, since ids may be duplicated amongst different
+  // element types; e.g. there may be a vertex and an edge with the same id.
+  NotDuplicateOrOrigin<int> pred;
+  if(chain.front() == chain.back()) {
+    pred = NotDuplicateOrOrigin<int>(idx);
+  } else {
+    pred = NotDuplicateOrOrigin<int>();
+  }
+
+  // start recursion
+  getNeighborsImpl(nbhTables, chain, targetType, {idx}, result);
+
+  std::vector<int> resultUnique;
+  std::copy_if(result.begin(), result.end(), std::back_inserter(resultUnique), std::ref(pred));
+  return resultUnique;
 }
 
 //===------------------------------------------------------------------------------------------===//
@@ -248,131 +281,23 @@ inline std::vector<int> nodeNeighboursOfNode(atlas::Mesh const& m, int const& id
 //===------------------------------------------------------------------------------------------===//
 
 template <typename Init, typename Op, typename WeightT>
-auto reduceCellToCell(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op,
-                      std::vector<WeightT>&& weights) {
+auto reduce(atlasTag, atlas::Mesh const& m, int idx, Init init,
+            std::vector<dawn::LocationType> chain, Op&& op, std::vector<WeightT>&& weights) {
   static_assert(std::is_arithmetic<WeightT>::value, "weights need to be of arithmetic type!\n");
   int i = 0;
-  for(auto&& objIdx : cellNeighboursOfCell(m, idx))
-    op(init, objIdx, weights[i++]);
-  return init;
-}
-template <typename Init, typename Op, typename WeightT>
-auto reduceEdgeToCell(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op,
-                      std::vector<WeightT>&& weights) {
-  static_assert(std::is_arithmetic<WeightT>::value, "weights need to be of arithmetic type!\n");
-  int i = 0;
-  for(auto&& objIdx : edgeNeighboursOfCell(m, idx))
-    op(init, objIdx, weights[i++]);
-  return init;
-}
-template <typename Init, typename Op, typename WeightT>
-auto reduceVertexToCell(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op,
-                        std::vector<WeightT>&& weights) {
-  static_assert(std::is_arithmetic<WeightT>::value, "weights need to be of arithmetic type!\n");
-  int i = 0;
-  for(auto&& objIdx : nodeNeighboursOfCell(m, idx))
-    op(init, objIdx, weights[i++]);
-  return init;
-}
-
-template <typename Init, typename Op, typename WeightT>
-auto reduceCellToEdge(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op,
-                      std::vector<WeightT>&& weights) {
-  static_assert(std::is_arithmetic<WeightT>::value, "weights need to be of arithmetic type!\n");
-  int i = 0;
-  for(auto&& objIdx : cellNeighboursOfEdge(m, idx))
-    op(init, objIdx, weights[i++]);
-  return init;
-}
-template <typename Init, typename Op, typename WeightT>
-auto reduceVertexToEdge(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op,
-                        std::vector<WeightT>&& weights) {
-  static_assert(std::is_arithmetic<WeightT>::value, "weights need to be of arithmetic type!\n");
-  int i = 0;
-  for(auto&& objIdx : nodeNeighboursOfEdge(m, idx))
-    op(init, objIdx, weights[i++]);
-  return init;
-}
-
-template <typename Init, typename Op, typename WeightT>
-auto reduceCellToVertex(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op,
-                        std::vector<WeightT>&& weights) {
-  static_assert(std::is_arithmetic<WeightT>::value, "weights need to be of arithmetic type!\n");
-  int i = 0;
-  for(auto&& objIdx : cellNeighboursOfNode(m, idx))
-    op(init, objIdx, weights[i++]);
-  return init;
-}
-template <typename Init, typename Op, typename WeightT>
-auto reduceEdgeToVertex(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op,
-                        std::vector<WeightT>&& weights) {
-  static_assert(std::is_arithmetic<WeightT>::value, "weights need to be of arithmetic type!\n");
-  int i = 0;
-  for(auto&& objIdx : edgeNeighboursOfNode(m, idx))
-    op(init, objIdx, weights[i++]);
-  return init;
-}
-template <typename Init, typename Op, typename WeightT>
-auto reduceVertexToVertex(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op,
-                          std::vector<WeightT>&& weights) {
-  static_assert(std::is_arithmetic<WeightT>::value, "weights need to be of arithmetic type!\n");
-  int i = 0;
-  for(auto&& objIdx : nodeNeighboursOfNode(m, idx))
+  for(auto&& objIdx : getNeighbors(atlasTag{}, m, chain, idx))
     op(init, objIdx, weights[i++]);
   return init;
 }
 
 //===------------------------------------------------------------------------------------------===//
-// unweighted versions
+// unweighted version
 //===------------------------------------------------------------------------------------------===//
 
 template <typename Init, typename Op>
-auto reduceCellToCell(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op) {
-  for(auto&& objIdx : cellNeighboursOfCell(m, idx))
-    op(init, objIdx);
-  return init;
-}
-template <typename Init, typename Op>
-auto reduceEdgeToCell(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op) {
-  for(auto&& objIdx : edgeNeighboursOfCell(m, idx))
-    op(init, objIdx);
-  return init;
-}
-template <typename Init, typename Op>
-auto reduceVertexToCell(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op) {
-  for(auto&& objIdx : nodeNeighboursOfCell(m, idx))
-    op(init, objIdx);
-  return init;
-}
-
-template <typename Init, typename Op>
-auto reduceCellToEdge(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op) {
-  for(auto&& objIdx : cellNeighboursOfEdge(m, idx))
-    op(init, objIdx);
-  return init;
-}
-template <typename Init, typename Op>
-auto reduceVertexToEdge(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op) {
-  for(auto&& objIdx : nodeNeighboursOfEdge(m, idx))
-    op(init, objIdx);
-  return init;
-}
-
-template <typename Init, typename Op>
-auto reduceCellToVertex(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op) {
-  for(auto&& objIdx : cellNeighboursOfNode(m, idx))
-    op(init, objIdx);
-  return init;
-}
-template <typename Init, typename Op>
-auto reduceEdgeToVertex(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op) {
-  for(auto&& objIdx : edgeNeighboursOfNode(m, idx))
-    op(init, objIdx);
-  return init;
-}
-template <typename Init, typename Op>
-auto reduceVertexToVertex(atlasTag, atlas::Mesh const& m, int idx, Init init, Op&& op) {
-  for(auto&& objIdx : nodeNeighboursOfNode(m, idx))
+auto reduce(atlasTag, atlas::Mesh const& m, int idx, Init init,
+            std::vector<dawn::LocationType> chain, Op&& op) {
+  for(auto&& objIdx : getNeighbors(atlasTag{}, m, chain, idx))
     op(init, objIdx);
   return init;
 }
