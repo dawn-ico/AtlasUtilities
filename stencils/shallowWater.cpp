@@ -12,24 +12,6 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
-//===------------------------------------------------------------------------------------------===//
-//
-//  UNTESTED, INCOMPLETE
-//
-//===------------------------------------------------------------------------------------------===//
-
-// Things to checks
-//  [X] why are the normals off?
-//      => mesh was scaled with two slightly different factors along x and y
-//  [X] introduce the stabilization term
-//      => doesn't seem to help
-//  - what about the boundaries?
-//  - is the method really consistent now?
-
-// Shallow water equation solver as described in "A simple and efficient unstructured finite volume
-// scheme for solving the shallow water equations in overland flow applications" by Cea and Bladé
-// Follows notation in the paper as closely as possilbe
-
 #include <cmath>
 #include <cstdio>
 #include <fenv.h>
@@ -99,10 +81,6 @@ void gradient(const atlas::Mesh& mesh, const atlasInterface::Field<double>& f,
     }
     f_x(cellIdx, level) = lhs_x / A(cellIdx, level);
     f_y(cellIdx, level) = lhs_y / A(cellIdx, level);
-
-    // if(fabs(lhs_x / A(cellIdx, level)) > 1e-6) {
-    //   printf("!\n");
-    // }
   }
 }
 
@@ -212,6 +190,23 @@ void lerpe2v(const atlas::Mesh& mesh, const atlasInterface::Field<double>& src,
   }
 }
 
+void lerpe2c(const atlas::Mesh& mesh, const atlasInterface::Field<double>& src,
+             atlasInterface::Field<double>& dest, int level) {
+
+  const auto& conn = mesh->cells().edge_connectivity();
+  for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+    double lhs = 0.;
+    for(int nbhIdx = 0; nbhIdx < conn.cols(cellIdx); nbhIdx++) {
+      int edgeIdx = conn(cellIdx, nbhIdx);
+      if(edgeIdx == conn.missing_value()) {
+        continue;
+      }
+      lhs += src(edgeIdx, level);
+    }
+    dest(cellIdx, level) = lhs / conn.cols(cellIdx);
+  }
+}
+
 int main(int argc, char const* argv[]) {
 
   // enable floating point exception
@@ -234,17 +229,22 @@ int main(int argc, char const* argv[]) {
   const int level = 0;
   double lDomain = 10;
 
-  bool useFriction = true;
-  double fricCoeff = 0.3;
-  double densityWater = 1e3;
+  bool useDamping = false;
+  double dampingCoeff = 0.1;
 
-  bool useDamping = true;
-  double dampingCoeff = 0.5;
+  double t = 0.;
+  double dt = 0.002;
+  bool fixed_timestep = true;
+  double t_final = 8.;
+
+  int step = 0;
+  int outputFreq = 20;
+
+  int slashFreq = 1e3;
 
   // dump a whole bunch of debug output (meant to be visualized using Octave, but gnuplot and the
   // like will certainly work too)
   const bool dbg_out = false;
-  const bool readMeshFromDisk = false;
 
   auto mesh = AtlasMeshRect(w * sqrt(3), w);
   atlas::mesh::actions::build_edges(mesh, atlas::util::Config("pole_edges", false));
@@ -322,6 +322,7 @@ int main(int argc, char const* argv[]) {
   auto [h_xC_F, h_xC] = MakeAtlasField("h_x", mesh.cells().size());
   auto [h_yC_F, h_yC] = MakeAtlasField("h_y", mesh.cells().size());
   auto [divuvC_F, divuvC] = MakeAtlasField("divuv", mesh.cells().size());
+  auto [laplhC_F, laplhC] = MakeAtlasField("laplh", mesh.cells().size());
 
   auto [u_tC_F, u_tC] = MakeAtlasField("u_t", mesh.cells().size());
   auto [v_tC_F, v_tC] = MakeAtlasField("v_t", mesh.cells().size());
@@ -421,8 +422,6 @@ int main(int argc, char const* argv[]) {
     ym -= 0;
     double v = sqrt(xm * xm + ym * ym);
     hC(cellIdx, level) = exp(-5 * v * v) + refHeight;
-    // hC(cellIdx, level) = refHeight;
-    // h(cellIdx, level) = sin(xm) * sin(ym) + refHeight;
   }
 
   for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
@@ -467,30 +466,12 @@ int main(int argc, char const* argv[]) {
     }
   }
 
-  {
-    FILE* fp = fopen("boundaryCells.txt", "w+");
-    for(auto it : boundaryCells) {
-      auto [x, y] = wrapper.cellCircumcenter(mesh, it);
-      fprintf(fp, "%f %f\n", x, y);
-    }
-    fclose(fp);
-  }
-
-  dumpEdgeField("nrm", mesh, wrapper, nx, ny, level);
-  dumpEdgeField("L", mesh, wrapper, L, level);
-
-  // dumpMesh4Triplot(mesh, "init", h, std::nullopt);
   dumpMesh4Triplot(mesh, "init", hC, wrapper);
-
-  double t = 0.;
-  double dt = 0;
-  double t_final = 16.;
-  int step = 0;
 
   // writing this intentionally close to generated code
   while(t < t_final) {
     // make some splashes
-    if(step > 0 && step % 1000 == 0) {
+    if(step > 0 && step % slashFreq == 0) {
       double splash_x = (rand() / ((double)RAND_MAX) - 0.5) * 2;
       double splash_y = (rand() / ((double)RAND_MAX) - 0.5) * 2;
       printf("splashing at %f %f\n", splash_x, splash_y);
@@ -502,10 +483,6 @@ int main(int argc, char const* argv[]) {
         hC(cellIdx, level) += exp(-5 * v * v);
       }
     }
-
-    // dumpCellField("uC", mesh, wrapper, uC, level);
-    // dumpCellField("vC", mesh, wrapper, vC, level);
-    // dumpCellField("hC", mesh, wrapper, hC, level);
 
     // init
     for(int cellIdx = 0; cellIdx < mesh->cells().size(); cellIdx++) {
@@ -525,22 +502,9 @@ int main(int argc, char const* argv[]) {
     lerp(mesh, uC, uE, alpha, level);
     lerp(mesh, vC, vE, alpha, level);
 
-    // dumpEdgeField("uE", mesh, wrapper, uE, level);
-    // dumpEdgeField("vE", mesh, wrapper, vE, level);
-    // dumpEdgeField("hE", mesh, wrapper, hE, level);
-
     for(auto bndIdx : boundaryEdges) {
       uE(bndIdx, level) = 0.;
       vE(bndIdx, level) = 0.;
-    }
-
-    // stabilizing(hi pass filtering)
-    if(useDamping) {
-      lerpe2v(mesh, hE, hV, level);
-      laplacianDiamond(mesh, hV, hE, L, vertVertL, laplhE, level);
-      for(int edgeIdx = 0; edgeIdx < mesh.edges().size(); edgeIdx++) {
-        hE(edgeIdx, level) += dampingCoeff * dt * laplhE(edgeIdx, level);
-      }
     }
 
     gradient(mesh, hE, nx, ny, edge_orientation_cell, L, A, h_xC, h_yC, level);
@@ -551,29 +515,21 @@ int main(int argc, char const* argv[]) {
       h_yC(bndIdx, level) = 0.;
     }
 
-    // dumpCellField("h_xC", mesh, wrapper, h_xC, level);
-    // dumpCellField("h_yC", mesh, wrapper, h_yC, level);
-    // dumpCellField("divuvC", mesh, wrapper, divuvC, level);
-
     for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
-      double absVelRel =
-          sqrt(uC(cellIdx, level) * uC(cellIdx, level) + vC(cellIdx, level) * vC(cellIdx, level));
-      double fricx = 0.;
-      double fricy = 0.;
-      if(absVelRel > 1e-8 && useFriction) {
-        double fricx = fricCoeff * hC(cellIdx, level) * A(cellIdx, level) * densityWater *
-                       fabs(Grav) * uC(cellIdx, level) / absVelRel;
-        double fricy = fricCoeff * hC(cellIdx, level) * A(cellIdx, level) * densityWater *
-                       fabs(Grav) * uC(cellIdx, level) / absVelRel;
-      }
-      u_tC(cellIdx, level) = -Grav * h_xC(cellIdx, level) + fricx;
-      v_tC(cellIdx, level) = -Grav * h_yC(cellIdx, level) + fricy;
+      u_tC(cellIdx, level) = -Grav * h_xC(cellIdx, level);
+      v_tC(cellIdx, level) = -Grav * h_yC(cellIdx, level);
       h_tC(cellIdx, level) = hC(cellIdx, level) * (divuvC(cellIdx, level));
     }
 
-    // dumpCellField("u_tC", mesh, wrapper, u_tC, level);
-    // dumpCellField("v_tC", mesh, wrapper, v_tC, level);
-    // dumpCellField("h_tC", mesh, wrapper, h_tC, level);
+    // stabilizing(hi pass filtering)
+    if(useDamping) {
+      lerpe2v(mesh, hE, hV, level);
+      laplacianDiamond(mesh, hV, hE, L, vertVertL, laplhE, level);
+      lerpe2c(mesh, laplhE, laplhC, level);
+      for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
+        h_tC(cellIdx, level) += dampingCoeff * laplhC(cellIdx, level);
+      }
+    }
 
     // correct
     for(int cellIdx = 0; cellIdx < mesh->cells().size(); cellIdx++) {
@@ -583,8 +539,8 @@ int main(int argc, char const* argv[]) {
     }
 
     // adapt CLF
-    // this would probably be in the driver code anyway
-    {
+    // global reduction
+    if(!fixed_timestep) {
       const auto& conn = mesh.cells().edge_connectivity();
       for(int cellIdx = 0; cellIdx < mesh.cells().size(); cellIdx++) {
         double l0 = L(conn(cellIdx, 0), level);
@@ -605,7 +561,7 @@ int main(int argc, char const* argv[]) {
 
     t += dt;
 
-    if(step % 20 == 0) {
+    if(step % outputFreq == 0) {
       char buf[256];
       sprintf(buf, "out/stepH_%04d.txt", step);
       dumpCellFieldOnNodes(buf, mesh, wrapper, hC, level);
