@@ -55,6 +55,8 @@ public:
   std::vector<int> innerNodes(const atlas::Mesh& mesh) const;
   std::vector<int> innerCells(const atlas::Mesh& mesh) const;
 
+  inline std::vector<Point>& xy() { return nodeToCart; }
+
   double distanceToCircumcenter(const atlas::Mesh& mesh, int cellIdx, int nodeIdx) const;
 
   Point nodeLocation(int nodeIdx) const { return nodeToCart[nodeIdx]; }
