@@ -19,4 +19,8 @@ add_subdirectory(stencils)
 add_subdirectory(scripts)
 
 configure_file(resources/icon_160.nc ${PROJECT_BINARY_DIR}/tests COPYONLY)
-install(EXPORT atlasutils DESTINATION lib/cmake FILE atlas_utils-config.cmake)
+#install(EXPORT atlasutils DESTINATION lib/cmake/atlas_utils FILE atlas_utils-config.cmake)
+
+install(FILES cmake/atlas_utilsConfig.cmake DESTINATION lib/cmake/atlas_utils)
+
+export(PACKAGE atlas_utils)
