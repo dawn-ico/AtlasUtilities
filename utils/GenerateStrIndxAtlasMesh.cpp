@@ -252,7 +252,7 @@ atlas::Mesh AtlasStrIndxMesh(int nx, int ny) {
   // below sets the e->c when there is a neighbour cell
   // but does not reset to -1 when there is no neighbour
   for(int eidx = 0; eidx != meshstr.edges().size(); ++eidx) {
-    for(int h = 0; h < 2; ++h) {
+    for(int h = 0; h < 3; ++h) {
       meshstr.edges().cell_connectivity().set(eidx, h, -1);
     }
   }

@@ -27,11 +27,27 @@
 #include <atlas/output/Gmsh.h>
 #include <atlas/util/CoordinateEnums.h>
 
+#include "../utils/GenerateRectAtlasMesh.h"
 #include "../utils/GenerateStrIndxAtlasMesh.h"
+
+int getStructuredIdxCell(int row_idx, int col_idx, int ncols) {
+
+  // color 0 for upward triangles
+  int color = -1;
+  if(row_idx % 2 == 0) {
+    color = ((col_idx + 1) % 2 == 0) ? 0 : 1;
+  } else {
+    color = ((col_idx) % 2 == 0) ? 0 : 1;
+  }
+  // new cell index offset wrt first cell in the row
+  int ncidx_norm = col_idx / 2 + color * ncols / 2;
+
+  return ncidx_norm + row_idx * ncols;
+}
 
 int main(int argc, char const* argv[]) {
   int nx = 4;
-  int ny = 4;
+  int ny = 5;
   auto m = AtlasStrIndxMesh(nx, ny);
   if(m.cells().size() != nx * ny) {
     printf("mesh size: %d expected: %d nx: %d ny: %d\n", m.cells().size(), nx * ny, nx, ny);
@@ -62,6 +78,23 @@ int main(int argc, char const* argv[]) {
   }
 
   printf("num vertices: %d\n", m.nodes().size());
+  auto test_m = AtlasMeshRect(nx, ny);
+  // TEST cell to nodes
+  for(int cidx = 0; cidx != test_m.cells().size(); ++cidx) {
+    auto row_idx = cidx / nx;
+    // cell index offset wrt first cell in the row
+    auto cidx_norm = cidx % nx;
+    // new cell index offset wrt first cell in the row
+    int ncidx = getStructuredIdxCell(row_idx, cidx_norm, nx);
+
+    printf("checking for (atlas) c: %d  (strided) c: %d\n", cidx, ncidx);
+    for(int v = 0; v < 3; v++) {
+      if(test_m.cells().node_connectivity()(cidx, v) != m.cells().node_connectivity()(ncidx, v))
+        printf("!!!\n");
+      assert(test_m.cells().node_connectivity()(cidx, v) ==
+             m.cells().node_connectivity()(ncidx, v));
+    }
+  }
 
   atlas::output::Gmsh gmsh("mesh.msh");
   gmsh.write(m);
