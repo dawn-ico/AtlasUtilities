@@ -7,6 +7,8 @@ if(NOT CMAKE_BUILD_TYPE)
       "Choose the type of build, options are: Debug Release RelWithDebInfo." FORCE)
 endif()
 
+set(CMAKE_LINK_WHAT_YOU_USE TRUE)
+
 find_package(eckit REQUIRED)
 find_package(atlas REQUIRED)
 find_package(NetCDF REQUIRED)
