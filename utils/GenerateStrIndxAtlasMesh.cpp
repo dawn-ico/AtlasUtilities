@@ -168,7 +168,7 @@ void generateCell2CellTable(atlas::Mesh& mesh) {
     }
   }
 }
-}
+} // namespace
 
 atlas::Mesh AtlasStrIndxMesh(int nx, int ny) {
 
@@ -207,10 +207,10 @@ atlas::Mesh AtlasStrIndxMesh(int nx, int ny) {
   // number of total edges has an excess (compared to the expected ny*ny*3) of
   // 1 edge per upward triangle at the bottom row and one edge per row (rightmost or leftmost)
   // in order to have complete cells
-  if(meshstr.edges().size() != (nx/2) * ny * 3 + (nx/2) + ny) {
+  if(meshstr.edges().size() != (nx / 2) * ny * 3 + (nx / 2) + ny) {
     throw std::runtime_error("number of edges do not match a structured layout");
   }
-  if(meshstr.nodes().size() != ((nx/2) + 1) * (ny + 1)) {
+  if(meshstr.nodes().size() != ((nx / 2) + 1) * (ny + 1)) {
     throw std::runtime_error("number of nodes do not match a structured layout");
   }
 
@@ -252,10 +252,11 @@ atlas::Mesh AtlasStrIndxMesh(int nx, int ny) {
   // below sets the e->c when there is a neighbour cell
   // but does not reset to -1 when there is no neighbour
   for(int eidx = 0; eidx != meshstr.edges().size(); ++eidx) {
-    for(int h = 0; h < 2; ++h) {
+    for(int h = 0; h < 3; ++h) {
       meshstr.edges().cell_connectivity().set(eidx, h, -1);
     }
   }
+  auto& edge2nodes = meshstr.edges().node_connectivity();
   // re-do the edge indexing
   // re-compute the cell -> edge and edge -> cell connectivity
   int ghost = ny * (nx / 2) * 3;
@@ -274,6 +275,7 @@ atlas::Mesh AtlasStrIndxMesh(int nx, int ny) {
         offset = 1;
       }
     }
+    auto half_col_idx = !isDownward ? cidx % nx : (cidx % nx) - (nx / 2);
     auto col = (cidx % (nx / 2)) * 2 + offset;
 
     for(int h = 0; h < 3; ++h) {
@@ -283,7 +285,49 @@ atlas::Mesh AtlasStrIndxMesh(int nx, int ny) {
 
       cell2edges.set(cidx, h, edgeIdx);
       edge2cells.set(edgeIdx, isDownward ? 0 : 1, cidx);
+
+      // fix the e->v connectivity
+      if(isDownward) {
+        switch(h) {
+        case 0:
+          // back-slash
+          edge2nodes.set(edgeIdx, 0, (row_idx + 1) * (nx / 2 + 1) + half_col_idx);
+          edge2nodes.set(edgeIdx, 1, row_idx * (nx / 2 + 1) + half_col_idx + row_idx % 2);
+          break;
+        case 1:
+          // underscore
+          edge2nodes.set(edgeIdx, 0, (row_idx + 1) * (nx / 2 + 1) + half_col_idx);
+          edge2nodes.set(edgeIdx, 1, (row_idx + 1) * (nx / 2 + 1) + half_col_idx + 1);
+          break;
+        case 2:
+          // slash
+          edge2nodes.set(edgeIdx, 0, (row_idx + 1) * (nx / 2 + 1) + half_col_idx + 1);
+          edge2nodes.set(edgeIdx, 1, row_idx * (nx / 2 + 1) + half_col_idx + row_idx % 2);
+          break;
+        }
+      } else { // upward
+        switch(h) {
+        case 0:
+          // slash
+          edge2nodes.set(edgeIdx, 0,
+                         (row_idx + 1) * (nx / 2 + 1) + half_col_idx + (1 - (row_idx % 2)));
+          edge2nodes.set(edgeIdx, 1, row_idx * (nx / 2 + 1) + half_col_idx);
+          break;
+        case 1:
+          // back-slash
+          edge2nodes.set(edgeIdx, 0,
+                         (row_idx + 1) * (nx / 2 + 1) + half_col_idx + (1 - (row_idx % 2)));
+          edge2nodes.set(edgeIdx, 1, row_idx * (nx / 2 + 1) + half_col_idx + 1);
+          break;
+        case 2:
+          // underscore
+          edge2nodes.set(edgeIdx, 0, row_idx * (nx / 2 + 1) + half_col_idx);
+          edge2nodes.set(edgeIdx, 1, row_idx * (nx / 2 + 1) + half_col_idx + 1);
+          break;
+        }
+      }
     }
   }
+
   return meshstr;
 }
