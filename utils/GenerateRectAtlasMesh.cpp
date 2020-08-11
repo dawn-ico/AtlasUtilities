@@ -4,9 +4,9 @@
 
 #include <atlas/array.h>
 #include <atlas/grid.h>
+#include <atlas/mesh/actions/BuildEdges.h>
 #include <atlas/meshgenerator.h>
 #include <atlas/util/CoordinateEnums.h>
-#include <atlas/mesh/actions/BuildEdges.h>
 
 namespace {
 bool TriangleInBB(const atlas::Mesh& mesh, int cellIdx, std::tuple<double, double> bblo,
@@ -190,6 +190,35 @@ atlas::Mesh AtlasMeshRectImpl(int nx, int ny) {
   atlas::mesh::actions::build_edges(rectMesh, atlas::util::Config("pole_edges", false));
   atlas::mesh::actions::build_node_to_edge_connectivity(rectMesh);
   atlas::mesh::actions::build_element_to_edge_connectivity(rectMesh);
+
+  for(int nodeIdx = 0; nodeIdx < rectMesh.nodes().size(); nodeIdx++) {
+    const auto& nodeToEdge = rectMesh.nodes().edge_connectivity();
+    const auto& edgeToCell = rectMesh.edges().cell_connectivity();
+    auto& nodeToCell = rectMesh.nodes().cell_connectivity();
+
+    std::set<int> nbh;
+    for(int nbhEdgeIdx = 0; nbhEdgeIdx < nodeToEdge.cols(nodeIdx); nbhEdgeIdx++) {
+      int edgeIdx = nodeToEdge(nodeIdx, nbhEdgeIdx);
+      if(edgeIdx == nodeToEdge.missing_value()) {
+        continue;
+      }
+      for(int nbhCellIdx = 0; nbhCellIdx < edgeToCell.cols(edgeIdx); nbhCellIdx++) {
+        int cellIdx = edgeToCell(edgeIdx, nbhCellIdx);
+        if(cellIdx == edgeToCell.missing_value()) {
+          continue;
+        }
+        nbh.insert(cellIdx);
+      }
+    }
+
+    assert(nbh.size() <= 6);
+    std::vector<int> initData(nbh.size(), nodeToCell.missing_value());
+    nodeToCell.add(1, nbh.size(), initData.data());
+    int copyIter = 0;
+    for(const int n : nbh) {
+      nodeToCell.set(nodeIdx, copyIter++, n);
+    }
+  }
 
   return rectMesh;
 }
