@@ -23,4 +23,3 @@ add_subdirectory(scripts)
 configure_file(resources/icon_160.nc ${PROJECT_BINARY_DIR}/tests COPYONLY)
 install(EXPORT atlas_utils DESTINATION lib/cmake/atlas_utils FILE atlas_utilsConfig.cmake)
 
-export(PACKAGE atlas_utils)
