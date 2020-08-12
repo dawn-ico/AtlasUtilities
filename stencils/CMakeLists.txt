@@ -14,5 +14,5 @@ add_executable(mylibIconLaplaceDriver mylibIconLaplaceDriver.cpp)
 target_link_libraries(mylibIconLaplaceDriver atlasUtilsLib toylib atlasIOLib ${NetCDF_C_LIBRARY})
 
 install(TARGETS atlasIconLaplaceDriver atlasIconDiamondLaplacianDriver atlasShallowWater mylibIconLaplaceDriver 
-       EXPORT atlasutils DESTINATION ${CMAKE_INSTALL_PREFIX}/bin/)
+       EXPORT atlas_utils DESTINATION ${CMAKE_INSTALL_PREFIX}/bin/)
 
