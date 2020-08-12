@@ -29,7 +29,7 @@ set_target_properties(atlasUtilsLib PROPERTIES PUBLIC_HEADER
      "AtlasCartesianWrapper.h;AtlasExtractSubmesh.h;AtlasFromNetcdf.h;AtlasProjectMesh.h;AtlasToNetcdf.h;GenerateRectAtlasMesh.h;GenerateRectToylibMesh.h;GenerateStrIndxAtlasMesh.h;ToylibGeomHelper.h"
 )
 
-install(TARGETS atlasUtilsLib EXPORT atlasutils 
+install(TARGETS atlasUtilsLib EXPORT atlas_utils 
   PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_PREFIX}/include/atlas_utils/utils 
   ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/ 
   LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/)
