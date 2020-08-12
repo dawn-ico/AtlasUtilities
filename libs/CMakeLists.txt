@@ -7,7 +7,7 @@ target_include_directories(toylib PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/l
 
 set_target_properties(toylib PROPERTIES PUBLIC_HEADER "toylib.hpp")
 
-install(TARGETS toylib EXPORT atlasutils 
+install(TARGETS toylib EXPORT atlas_utils 
   PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_PREFIX}/include/atlas_utils/libs
   ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/ 
   LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/)

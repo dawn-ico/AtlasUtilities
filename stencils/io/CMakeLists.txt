@@ -12,7 +12,7 @@ set_target_properties(atlasIOLib PROPERTIES PUBLIC_HEADER
      "atlasIO.h;toylibIO.h"
 )
 
-install(TARGETS atlasIOLib EXPORT atlasutils 
+install(TARGETS atlasIOLib EXPORT atlas_utils 
   PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_PREFIX}/include/atlas_utils/stencils/io  
   ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/ 
   LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/)
