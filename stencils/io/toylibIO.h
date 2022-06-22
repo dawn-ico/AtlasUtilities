@@ -19,6 +19,7 @@
 #include "ToylibGeomHelper.h"
 
 #include <string.h>
+#include <optional>
 
 void dumpMesh(const toylib::Grid& m, const std::string& fname);
 void dumpDualMesh(const toylib::Grid& m, const std::string& fname);
