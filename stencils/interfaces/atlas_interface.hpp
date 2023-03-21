@@ -20,6 +20,7 @@
 #include <cassert>
 #include <functional>
 #include <iterator>
+#include <list>
 #include <set>
 #include <tuple>
 #include <unordered_map>
